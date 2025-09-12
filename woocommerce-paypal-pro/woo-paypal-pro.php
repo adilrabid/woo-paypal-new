@@ -67,6 +67,7 @@ if ( ! class_exists( 'WC_Paypal_Pro_Gateway_Addon' ) ) {
 	function plugins_loaded_handler() {
 	    //Runs when plugins_loaded action gets fired
 	    include_once('woo-paypal-pro-gateway-class.php');
+	    include_once('woo-paypal-pro-gateway-paypal-checkout.php');
 	    add_filter( 'woocommerce_payment_gateways', array( &$this, 'init_paypal_pro_gateway' ) );
 	}
 
@@ -100,6 +101,7 @@ if ( ! class_exists( 'WC_Paypal_Pro_Gateway_Addon' ) ) {
 
 	function init_paypal_pro_gateway( $methods ) {
 	    array_push( $methods, 'WC_PP_PRO_Gateway' );
+	    array_push( $methods, 'WC_Gateway_PayPal_Checkout' );
 	    return $methods;
 	}
 

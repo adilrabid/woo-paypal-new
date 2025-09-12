@@ -1,0 +1,4 @@
+
+= CP1 =
+- Done the initial integration of PayPal Checkout.
+- Need to do transaction testing and finalize the integration.
