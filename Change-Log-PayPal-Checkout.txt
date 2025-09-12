@@ -1,4 +1,7 @@
 
+= CP2 =
+- The PayPal checkout works end-to-end. However, a few minor things need to be addressed next.
+
 = CP1 =
 - Done the initial integration of PayPal Checkout.
 - Need to do transaction testing and finalize the integration.
