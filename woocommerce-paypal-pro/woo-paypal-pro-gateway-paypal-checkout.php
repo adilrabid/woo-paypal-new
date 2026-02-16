@@ -11,10 +11,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     
+    private $sandbox;
+    private $client_id;
+    private $client_secret;
+
     public function __construct() {
         $this->id                 = 'paypal_checkout';
-        $this->icon               = apply_filters('woocommerce_paypal_checkout_icon', 'https://www.paypalobjects.com/webstatic/icon/pp258.png');
-        $this->has_fields         = false;
+        $this->icon               = apply_filters('woocommerce_paypal_checkout_icon', 'https://www.paypalobjects.com/webstatic/icon/pp32.png');
+        $this->has_fields         = true;
         $this->method_title       = __( 'PayPal Checkout', 'woocommerce-paypal-pro-payment-gateway' );
         $this->method_description = __( 'Accept payments via PayPal Checkout with smart payment buttons.', 'woocommerce-paypal-pro-payment-gateway' );
         $this->supports           = array( 'products' );
@@ -49,10 +53,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         add_action( 'wp_footer', array( $this, 'inject_paypal_buttons_for_block_themes' ) );
         
         // Still try traditional hooks as fallback
-        add_action( 'woocommerce_proceed_to_checkout', array( $this, 'render_paypal_button_on_cart' ), 20 );
         add_action( 'woocommerce_after_cart_totals', array( $this, 'render_paypal_button_on_cart' ), 15 );
-        add_action( 'woocommerce_review_order_before_submit', array( $this, 'render_paypal_button_on_checkout' ), 10 );
-        add_action( 'woocommerce_checkout_order_review', array( $this, 'render_paypal_button_on_checkout' ), 25 );
         
         // AJAX actions (always add these for security)
         add_action( 'wp_ajax_paypal_checkout_create_order', array( $this, 'create_paypal_order' ) );
@@ -70,7 +71,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             return;
         }
 
-        if ( ! is_cart() && ! is_checkout() ) {
+        if ( ! is_cart() ) {
             return;
         }
 
@@ -78,151 +79,8 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         ?>
         <script type="text/javascript">
         document.addEventListener('DOMContentLoaded', function() {
-            // Wait a bit for WooCommerce blocks to load
-            setTimeout(function() {
-                injectPayPalButtons();
-            }, 1000);
-            
-            // Also try again after a longer delay in case blocks load slowly
-            setTimeout(function() {
-                injectPayPalButtons();
-            }, 3000);
+            woo_pp_pro_inject_btn_for_cart_block();
         });
-
-        function injectPayPalButtons() {
-            // Check if we're on cart page
-            if (document.body.classList.contains('woocommerce-cart') || 
-                document.querySelector('.wc-block-cart') || 
-                document.querySelector('[data-block-name="woocommerce/cart"]')) {
-                
-                console.log('PayPal: Detected cart page');
-                injectCartButton();
-            }
-            
-            // Check if we're on checkout page
-            if (document.body.classList.contains('woocommerce-checkout') || 
-                document.querySelector('.wc-block-checkout') || 
-                document.querySelector('[data-block-name="woocommerce/checkout"]')) {
-                
-                console.log('PayPal: Detected checkout page');
-                injectCheckoutButton();
-            }
-        }
-
-        function injectCartButton() {
-            // Don't inject if already exists
-            if (document.querySelector('#paypal-cart-button-container')) {
-                return;
-            }
-
-            // Try multiple selectors for cart totals area
-            var selectors = [
-                '.wc-block-cart__totals-wrapper',
-                '.cart-collaterals',
-                '.cart_totals',
-                '.wc-block-cart-totals',
-                '.woocommerce-cart-form + .cart-collaterals',
-                '.wp-block-woocommerce-cart-totals-block'
-            ];
-
-            var targetElement = null;
-            for (var i = 0; i < selectors.length; i++) {
-                targetElement = document.querySelector(selectors[i]);
-                if (targetElement) {
-                    console.log('PayPal: Found cart target with selector: ' + selectors[i]);
-                    break;
-                }
-            }
-
-            if (targetElement) {
-                var buttonContainer = document.createElement('div');
-                buttonContainer.id = 'paypal-cart-button-container';
-                buttonContainer.style.cssText = 'border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px; background: #f9f9f9;';
-                buttonContainer.innerHTML = '<h3>Or pay with PayPal</h3><div id="paypal-checkout-button-container" style="margin: 20px 0;"></div>';
-                
-                targetElement.appendChild(buttonContainer);
-                renderPayPalButton();
-            } else {
-                console.log('PayPal: Could not find cart target element');
-            }
-        }
-
-        function injectCheckoutButton() {
-            // Don't inject if already exists
-            if (document.querySelector('#paypal-checkout-button-container-checkout')) {
-                return;
-            }
-
-            // Try multiple selectors for checkout area
-            var selectors = [
-                '.wc-block-checkout__actions',
-                '.woocommerce-checkout-payment',
-                '.wc-block-checkout-payment',
-                '.checkout-payment',
-                'form.checkout',
-                '.wc-block-checkout__main'
-            ];
-
-            var targetElement = null;
-            for (var i = 0; i < selectors.length; i++) {
-                targetElement = document.querySelector(selectors[i]);
-                if (targetElement) {
-                    console.log('PayPal: Found checkout target with selector: ' + selectors[i]);
-                    break;
-                }
-            }
-
-            if (targetElement) {
-                var buttonContainer = document.createElement('div');
-                buttonContainer.id = 'paypal-checkout-button-container-checkout';
-                buttonContainer.style.cssText = 'border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px; background: #f9f9f9;';
-                buttonContainer.innerHTML = '<p>Or pay with PayPal:</p><div id="paypal-checkout-button-container" style="margin: 20px 0;"></div>';
-                
-                targetElement.appendChild(buttonContainer);
-                renderPayPalButton();
-            } else {
-                console.log('PayPal: Could not find checkout target element');
-            }
-        }
-
-        function renderPayPalButton() {
-            if (typeof paypal !== 'undefined' && document.querySelector('#paypal-checkout-button-container')) {
-                paypal.Buttons({
-                    createOrder: function(data, actions) {
-                        return jQuery.post(wc_paypal_checkout_params.ajax_url, {
-                            action: "paypal_checkout_create_order",
-                            nonce: wc_paypal_checkout_params.nonce
-                        }).then(function(response) {
-                            if (response.success) {
-                                return response.data.order_id;
-                            } else {
-                                throw new Error(response.data.message || 'Order creation failed');
-                            }
-                        });
-                    },
-                    onApprove: function(data, actions) {
-                        return jQuery.post(wc_paypal_checkout_params.ajax_url, {
-                            action: "paypal_checkout_capture_order",
-                            paypal_order_id: data.orderID,
-                            wc_order_id: data.orderID,
-                            nonce: wc_paypal_checkout_params.nonce
-                        }).then(function(response) {
-                            if (response.success) {
-                                window.location.href = response.data.redirect;
-                            } else {
-                                alert("Payment failed: " + (response.data.message || 'Unknown error'));
-                            }
-                        });
-                    },
-                    onError: function(err) {
-                        console.error('PayPal Error:', err);
-                        alert('An error occurred during payment. Please try again.');
-                    }
-                }).render("#paypal-checkout-button-container");
-            } else {
-                console.log('PayPal: SDK not loaded or container not found');
-            }
-        }
         </script>
         <?php
     }
@@ -337,6 +195,14 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             null,
             true
         );
+        
+        wp_enqueue_script(
+            'woo-pp-pro-ppcp-related',
+            WC_PP_PRO_ADDON_URL . '/assets/js/woo-pp-pro-ppcp-related.js',
+            array( 'jquery', 'paypal-checkout-sdk' ),
+            null,
+            true
+        );
 
         wp_localize_script( 'paypal-checkout-sdk', 'wc_paypal_checkout_params', array(
             'ajax_url'    => admin_url( 'admin-ajax.php' ),
@@ -344,6 +210,18 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'currency'    => get_woocommerce_currency(),
             'total'       => WC()->cart ? WC()->cart->get_total( 'raw' ) : 0,
         ));
+    }
+
+    public function payment_fields() {
+        ?>
+        <div id="paypal-checkout-button-container"></div>
+        <script>
+            jQuery(function ($) {
+                const btn_container_selector = '#paypal-checkout-button-container';
+                woo_pp_pro_render_ppcp_btn(btn_container_selector);
+            })
+        </script>
+        <?php
     }
 
     /**
@@ -355,73 +233,25 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             echo '<!-- PayPal Checkout: Gateway not available on cart page -->';
             return;
         }
+        
+        if ( ! is_cart() ) {
+            return;
+        }
 
         echo '<!-- PayPal Checkout: Rendering button on cart page -->';
         echo '<div class="wc-paypal-checkout-cart-button" style="border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px;">';
         echo '<h3>' . __( 'Or pay with PayPal', 'woocommerce-paypal-pro-payment-gateway' ) . '</h3>';
-        $this->render_paypal_button_html();
-        echo '</div>';
-    }
-
-    /**
-     * Render PayPal button on checkout page
-     */
-    public function render_paypal_button_on_checkout() {
-        if ( ! $this->is_available() ) {
-            // Debug: Add hidden comment to see if method is being called
-            echo '<!-- PayPal Checkout: Gateway not available on checkout page -->';
-            return;
-        }
-
-        echo '<!-- PayPal Checkout: Rendering button on checkout page -->';
-        echo '<div class="wc-paypal-checkout-button" style="border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px;">';
-        echo '<p>' . __( 'Or pay with PayPal:', 'woocommerce-paypal-pro-payment-gateway' ) . '</p>';
-        $this->render_paypal_button_html();
-        echo '</div>';
-    }
-
-    /**
-     * Render PayPal button HTML and JavaScript
-     */
-    private function render_paypal_button_html() {
         echo '<div id="paypal-checkout-button-container" style="margin: 20px 0;"></div>';
-        echo '<script>
-        document.addEventListener("DOMContentLoaded", function() {
-            if (typeof paypal !== "undefined") {
-                paypal.Buttons({
-                    createOrder: function(data, actions) {
-                        return jQuery.post(wc_paypal_checkout_params.ajax_url, {
-                            action: "paypal_checkout_create_order",
-                            nonce: wc_paypal_checkout_params.nonce
-                        }).then(function(response) {
-                            if (response.success) {
-                                return response.data.order_id;
-                            } else {
-                                throw new Error(response.data.message || "Order creation failed");
-                            }
-                        });
-                    },
-                    onApprove: function(data, actions) {
-                        return jQuery.post(wc_paypal_checkout_params.ajax_url, {
-                            action: "paypal_checkout_capture_order",
-                            paypal_order_id: data.orderID,
-                            nonce: wc_paypal_checkout_params.nonce
-                        }).then(function(response) {
-                            if (response.success) {
-                                window.location.href = response.data.redirect;
-                            } else {
-                                alert("Payment failed: " + (response.data.message || "Unknown error"));
-                            }
-                        });
-                    },
-                    onError: function(err) {
-                        console.error("PayPal Error:", err);
-                        alert("An error occurred during payment. Please try again.");
-                    }
-                }).render("#paypal-checkout-button-container");
-            }
-        });
-        </script>';
+        echo '</div>';
+
+        echo '<!-- PayPal Checkout: Injecting buttons for block theme -->';
+        ?>
+        <script type="text/javascript">
+            document.addEventListener('DOMContentLoaded', function() {
+                woo_pp_pro_render_ppcp_btn_with_retry();
+            });
+        </script>
+        <?php
     }
 
     /**
