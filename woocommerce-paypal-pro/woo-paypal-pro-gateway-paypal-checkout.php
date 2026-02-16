@@ -49,11 +49,11 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         // Always add these hooks, but check availability in the methods themselves
         add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ) );
         
-        // For block themes, we need to use JavaScript to inject buttons
-        add_action( 'wp_footer', array( $this, 'inject_paypal_buttons_for_block_themes' ) );
+        // For cart block, we need to use JavaScript to inject buttons
+        add_action( 'wp_footer', array( $this, 'render_paypal_button_on_cart_block' ) );
         
-        // Still try traditional hooks as fallback
-        add_action( 'woocommerce_after_cart_totals', array( $this, 'render_paypal_button_on_cart' ), 15 );
+        // For cart shortcode, we need to use woocommerce hook to render buttons
+        add_action( 'woocommerce_after_cart_totals', array( $this, 'render_paypal_button_on_cart_shortcode' ), 15 );
         
         // AJAX actions (always add these for security)
         add_action( 'wp_ajax_paypal_checkout_create_order', array( $this, 'create_paypal_order' ) );
@@ -65,7 +65,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     /**
      * Inject PayPal buttons using JavaScript for block themes
      */
-    public function inject_paypal_buttons_for_block_themes() {
+    public function render_paypal_button_on_cart_block() {
         if ( ! $this->is_available() ) {
             echo '<!-- PayPal Checkout: Gateway not available for block theme injection -->';
             return;
@@ -227,7 +227,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     /**
      * Render PayPal button on cart page
      */
-    public function render_paypal_button_on_cart() {
+    public function render_paypal_button_on_cart_shortcode() {
         if ( ! $this->is_available() ) {
             // Debug: Add hidden comment to see if method is being called
             echo '<!-- PayPal Checkout: Gateway not available on cart page -->';
