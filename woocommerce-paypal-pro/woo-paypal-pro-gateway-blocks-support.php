@@ -26,7 +26,7 @@ class WC_PP_PRO_Gateway_Blocks_Support extends AbstractPaymentMethodType
 
 	public function get_payment_method_script_handles()
 	{
-		$asset_path   = WC_PP_PRO_ADDON_PATH . '/block-integration/index.asset.php';
+		$asset_path   = WC_PP_PRO_ADDON_PATH . '/block-integration/paypal-pro/index.asset.php';
 		$version      = null;
 		$dependencies = array();
 		if (file_exists($asset_path)) {
@@ -36,22 +36,22 @@ class WC_PP_PRO_Gateway_Blocks_Support extends AbstractPaymentMethodType
 		}
 
 		wp_enqueue_style(
-			'wcpprog-block-support-styles',
-			plugins_url('', WC_PP_PRO_ADDON_FILE) . '/block-integration/index.css',
+			'wcpprog-block-support-paypal-pro-styles',
+			plugins_url('', WC_PP_PRO_ADDON_FILE) . '/block-integration/paypal-pro/index.css',
 			null,
 			$version
 		);
 
 		wp_register_script(
-			'wcpprog-block-support-script',
-			plugins_url('', WC_PP_PRO_ADDON_FILE) . '/block-integration/index.js',
+			'wcpprog-block-support-paypal-pro-script',
+			plugins_url('', WC_PP_PRO_ADDON_FILE) . '/block-integration/paypal-pro/index.js',
 			$dependencies,
 			$version,
 			true
 		);
 
 		// Return the script handler(s), so woocommerce can handle enqueueing of them.
-		return array('wcpprog-block-support-script');
+		return array('wcpprog-block-support-paypal-pro-script');
 	}
 
 	public function get_payment_method_data()

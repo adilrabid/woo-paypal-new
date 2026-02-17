@@ -19,7 +19,9 @@ class WCPPROG_WooCommerce_Init_handler {
 
 	public function wcpprog_register_wc_blocks_payment_method_type( Automattic\WooCommerce\Blocks\Payments\PaymentMethodRegistry $payment_method_registry ) {
 		require_once WC_PP_PRO_ADDON_PATH . '/woo-paypal-pro-gateway-blocks-support.php';
+		require_once WC_PP_PRO_ADDON_PATH . '/woo-paypal-pro-gateway-blocks-support-ppcp.php';
 
 		$payment_method_registry->register( new WC_PP_PRO_Gateway_Blocks_Support );
+		$payment_method_registry->register( new WC_PP_PRO_Gateway_Blocks_Support_PPCP );
 	}
 }

@@ -3,12 +3,11 @@
  */
 import { __ } from "@wordpress/i18n";
 import { useEffect, useState } from '@wordpress/element';
-// const { TextInput } = wc.blocksCheckout;
 
 /**
  * Internal dependencies
  */
-import { getSettings } from './Utils';
+import { getPayPalProSettings } from '../Utils';
 import styles from './FrontEndContent.module.css';
 
 /**
@@ -87,7 +86,7 @@ function ExpMonthSelect({ onBillingExpMonthChange }) {
             onChange={handleStateChange}
         >
             {months.map((month, index) => (
-                <option key={index} value={index + 1} selected={currentMonth === (index+1)}>
+                <option key={index} value={index + 1} selected={currentMonth === (index + 1)}>
                     {month}
                 </option>
             ))}
@@ -136,7 +135,7 @@ function ExpYearSelect({ onBillingExpYearChange }) {
 /**
  * Component for site's front-end payment method view. 
  */
-const FrontEndContent = (props) => {
+export default (props) => {
     const {
         billing,
         eventRegistration,
@@ -154,18 +153,18 @@ const FrontEndContent = (props) => {
     const [billingExpMonth, setBillingExpMonth] = useState("");
     const [billingExpYear, setBillingExpYear] = useState("");
 
-    const card_no_input_placeholder = getSettings('card_number_field_placeholder');
-    const cvv_field_placeholder = getSettings('cvv_field_placeholder');
-    const securitycodehint = getSettings('securitycodehint');
-    const cvv_hint_img = getSettings('cvv_hint_img');
-    
+    const card_no_input_placeholder = getPayPalProSettings('card_number_field_placeholder');
+    const cvv_field_placeholder = getPayPalProSettings('cvv_field_placeholder');
+    const securitycodehint = getPayPalProSettings('securitycodehint');
+    const cvv_hint_img = getPayPalProSettings('cvv_hint_img');
+
     const handleBillingCreditCardChange = (event) => {
-        let inputValue = event.target.value 
+        let inputValue = event.target.value
         setBillingCreditCard(String(inputValue));
     };
 
     const handleBillingCvvNumberChange = (event) => {
-        let inputValue = event.target.value 
+        let inputValue = event.target.value
         setBillingCvvNumber(String(inputValue));
     };
 
@@ -289,5 +288,3 @@ const FrontEndContent = (props) => {
         </>
     )
 }
-
-export default FrontEndContent;
