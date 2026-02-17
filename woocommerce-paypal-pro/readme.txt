@@ -57,8 +57,10 @@ Please visit the PayPal Pro Payment Gateway for WooCommerce plugin page to view 
 https://wp-ecommerce.net/paypal-pro-payment-gateway-for-woocommerce
 
 == Changelog ==
+
 = WIP =
-- PayPal PPCP payment method added.
+- PayPal Commerce Platform payment option added.
+- Fixed an issue with the PayPal API error response handling where the error response was not being properly handled and displayed to the user.
 
 = 3.0.3 =
 - Display name updated.

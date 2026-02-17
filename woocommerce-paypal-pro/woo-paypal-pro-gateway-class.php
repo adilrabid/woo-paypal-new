@@ -258,6 +258,9 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 	    $this->mark_as_failed_payment();
             //$logger->info( "PayPal Pro Credit Card payment failed!", $context );//Debug logging
 	    wc_add_notice( __( '(Transaction Error) something is wrong.', 'woocommerce-paypal-pro-payment-gateway' ), 'error' );
+	    return array(
+		'result' => 'failure'
+	    );
 	}
     }
 
