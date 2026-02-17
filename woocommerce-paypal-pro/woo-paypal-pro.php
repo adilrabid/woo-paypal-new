@@ -22,13 +22,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 //Block support
 //The 'WCPPROG_WooCommerce_Init_handler' class has the block support declaration.
 
-//HPOS Compatibility
-add_action( 'before_woocommerce_init', function() {
-	if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
-		\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
-	}
-} );
-
 //The main class
 if ( ! class_exists( 'WC_Paypal_Pro_Gateway_Addon' ) ) {
 
@@ -66,9 +59,11 @@ if ( ! class_exists( 'WC_Paypal_Pro_Gateway_Addon' ) ) {
 
 	function plugins_loaded_handler() {
 	    //Runs when plugins_loaded action gets fired
-	    include_once('woo-paypal-pro-gateway-class.php');
-	    include_once('woo-paypal-pro-gateway-paypal-checkout.php');
-	    add_filter( 'woocommerce_payment_gateways', array( &$this, 'init_paypal_pro_gateway' ) );
+		if ( class_exists( 'WC_Payment_Gateway' ) ) {
+			include_once('woo-paypal-pro-gateway-class.php');
+			include_once('woo-paypal-pro-gateway-paypal-checkout.php');
+			add_filter( 'woocommerce_payment_gateways', array( $this, 'init_payment_gateways' ) );
+		}
 	}
 
 	function do_db_upgrade_check() {
@@ -93,13 +88,13 @@ if ( ! class_exists( 'WC_Paypal_Pro_Gateway_Addon' ) ) {
 
 	function add_link_to_settings( $links, $file ) {
 	    if ( $file == plugin_basename( __FILE__ ) ) {
-		$settings_link = '<a href="admin.php?page=wc-settings&tab=checkout&section=paypalpro">Settings</a>';
+		$settings_link = '<a href="admin.php?page=wc-settings&tab=checkout">Settings</a>';
 		array_unshift( $links, $settings_link );
 	    }
 	    return $links;
 	}
 
-	function init_paypal_pro_gateway( $methods ) {
+	function init_payment_gateways( $methods ) {
 	    array_push( $methods, 'WC_PP_PRO_Gateway' );
 	    array_push( $methods, 'WC_Gateway_PayPal_Checkout' );
 	    return $methods;

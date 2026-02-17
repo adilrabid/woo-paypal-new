@@ -7,12 +7,18 @@ class WCPPROG_WooCommerce_Init_handler {
 	}
 
 	public function wcpprog_handle_before_woocommerce_init() {
-		// handle woocommerce checkout blocks compatibility
 		if ( class_exists( '\Automattic\WooCommerce\Utilities\FeaturesUtil' ) ) {
+			// handle woocommerce checkout blocks compatibility
 			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility(
 				'cart_checkout_blocks',
 				WC_PP_PRO_ADDON_FILE,
 				true // true (compatible, default) or false (not compatible)
+			);
+
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 
+				'custom_order_tables', 
+				WC_PP_PRO_ADDON_FILE, 
+				true 
 			);
 		}
 	}
