@@ -6,12 +6,12 @@ const RtlCssPlugin = require('rtlcss-webpack-plugin');
 
 const wcDepMap = {
     '@woocommerce/blocks-registry': ['wc', 'wcBlocksRegistry'],
-    '@woocommerce/settings'       : ['wc', 'wcSettings']
+    '@woocommerce/settings': ['wc', 'wcSettings']
 };
 
 const wcHandleMap = {
     '@woocommerce/blocks-registry': 'wc-blocks-registry',
-    '@woocommerce/settings'       : 'wc-settings'
+    '@woocommerce/settings': 'wc-settings'
 };
 
 const requestToExternal = (request) => {
@@ -30,8 +30,8 @@ const requestToHandle = (request) => {
 module.exports = {
     ...defaultConfig,
     entry: {
-        'paypal-pro': path.resolve(__dirname, 'src', 'blocks', 'wcpprog-payment-gateway-integration', 'paypal-pro','index.js'),
-        'paypal-ppcp': path.resolve(__dirname, 'src', 'blocks', 'wcpprog-payment-gateway-integration', 'paypal-ppcp','index.js'),
+        'paypal-pro': path.resolve(__dirname, 'src', 'blocks', 'wcpprog-payment-gateway-integration', 'paypal-pro', 'index.js'),
+        'paypal-ppcp': path.resolve(__dirname, 'src', 'blocks', 'wcpprog-payment-gateway-integration', 'paypal-ppcp', 'index.js'),
     },
     output: {
         path: path.resolve(__dirname, 'block-integration'),
@@ -49,7 +49,7 @@ module.exports = {
         new MiniCssExtractPlugin({
             filename: '[name]/index.css',
         }),
-        
+
         new RtlCssPlugin({
             filename: '[name]/index-rtl.css',
         }),

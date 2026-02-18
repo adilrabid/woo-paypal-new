@@ -2,15 +2,13 @@
 
 use Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType;
 
-class WC_PP_PRO_Gateway_Blocks_Support extends AbstractPaymentMethodType
-{
+class WC_PP_PRO_Gateway_Blocks_Support extends AbstractPaymentMethodType {
 
 	private $gateway;
 
 	protected $name = 'paypalpro'; // payment gateway id
 
-	public function initialize()
-	{
+	public function initialize() {
 		// get gateway class
 		$gateways      = WC()->payment_gateways->payment_gateways();
 		$this->gateway = $gateways[$this->name];
@@ -19,13 +17,11 @@ class WC_PP_PRO_Gateway_Blocks_Support extends AbstractPaymentMethodType
 		$this->settings = get_option("woocommerce_{$this->name}_settings", array());
 	}
 
-	public function is_active()
-	{
+	public function is_active() {
 		return !empty($this->settings['enabled']) && 'yes' === $this->settings['enabled'];
 	}
 
-	public function get_payment_method_script_handles()
-	{
+	public function get_payment_method_script_handles() {
 		$asset_path   = WC_PP_PRO_ADDON_PATH . '/block-integration/paypal-pro/index.asset.php';
 		$version      = null;
 		$dependencies = array();
@@ -54,8 +50,7 @@ class WC_PP_PRO_Gateway_Blocks_Support extends AbstractPaymentMethodType
 		return array('wcpprog-block-support-paypal-pro-script');
 	}
 
-	public function get_payment_method_data()
-	{
+	public function get_payment_method_data() {
 		return array(
 			'title'                         => $this->get_setting('title'),
 			'description'                   => $this->get_setting('description'),
@@ -69,8 +64,7 @@ class WC_PP_PRO_Gateway_Blocks_Support extends AbstractPaymentMethodType
 		);
 	}
 
-	public function get_credit_card_icons()
-	{
+	public function get_credit_card_icons() {
 		return array(
 			array(
 				"id" => "wcpprog-wc-payment-method-visa",
