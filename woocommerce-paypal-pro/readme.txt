@@ -61,6 +61,7 @@ https://wp-ecommerce.net/paypal-pro-payment-gateway-for-woocommerce
 = WIP =
 - PayPal Commerce Platform payment option added.
 - Fixed an issue with the PayPal API error response handling where the error response was not being properly handled and displayed to the user.
+- PayPal PPCP onboarding feature added.
 
 = 3.0.3 =
 - Display name updated.

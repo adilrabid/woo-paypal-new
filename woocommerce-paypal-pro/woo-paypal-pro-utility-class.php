@@ -86,4 +86,28 @@ class WC_PP_PRO_Utility {
 
 		return apply_filters('wcpprog_get_user_ip', $user_ip);
 	}
+
+    public static function log( $message, $success = true, $end = false ) {
+		if ($success) {
+			wc_get_logger()->debug( $message, array( 'source' => 'woo_pp_pro' ) );
+		} else {
+			wc_get_logger()->error( $message, array( 'source' => 'woo_pp_pro' ) );
+		}
+
+		if ($end) {
+			wc_get_logger()->debug('-----------------------', array('source' => 'woo_pp_pro'));
+		}
+    }
+
+	public static function log_array( $message, $success = true, $end = false ) {
+		if ($success) {
+			wc_get_logger()->debug( wc_print_r($message, true), array( 'source' => 'woo_pp_pro' ) );
+		} else {
+			wc_get_logger()->error( wc_print_r($message, true), array( 'source' => 'woo_pp_pro' ) );
+		}
+
+		if ($end) {
+			wc_get_logger()->debug('-----------------------', array('source' => 'woo_pp_pro'));
+		}
+    }
 }

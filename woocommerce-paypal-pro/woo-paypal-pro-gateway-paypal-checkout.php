@@ -77,13 +77,13 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         }
 
         echo '<!-- PayPal Checkout: Injecting buttons for block theme -->';
-?>
+        ?>
         <script type="text/javascript">
             document.addEventListener('DOMContentLoaded', function() {
                 woo_pp_pro_inject_btn_for_cart_block();
             });
         </script>
-    <?php
+        <?php
     }
 
     /**
@@ -99,6 +99,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     public function debug_checkout_hook() {
         echo '<!-- PayPal Checkout: Checkout hook fired -->';
     }
+
     /**
      * Initialize Gateway Settings Form Fields
      */
@@ -108,7 +109,8 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 'title'   => __('Enable/Disable', 'woocommerce-paypal-pro-payment-gateway'),
                 'type'    => 'checkbox',
                 'label'   => __('Enable PayPal Checkout', 'woocommerce-paypal-pro-payment-gateway'),
-                'default' => 'no'
+                'default' => 'no',
+                'subtab' => 'general',
             ),
             'title' => array(
                 'title'       => __('Title', 'woocommerce-paypal-pro-payment-gateway'),
@@ -116,6 +118,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 'description' => __('This controls the title which the user sees during checkout.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => __('PayPal', 'woocommerce-paypal-pro-payment-gateway'),
                 'desc_tip'    => true,
+                'subtab' => 'general',
             ),
             'description' => array(
                 'title'       => __('Description', 'woocommerce-paypal-pro-payment-gateway'),
@@ -123,20 +126,73 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 'description' => __('Payment method description that the customer will see on your checkout.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => __('Pay with your PayPal account or credit card.', 'woocommerce-paypal-pro-payment-gateway'),
                 'desc_tip'    => true,
+                'subtab' => 'general',
             ),
             'sandbox' => array(
                 'title'   => __('Sandbox', 'woocommerce-paypal-pro-payment-gateway'),
                 'type'    => 'checkbox',
                 'label'   => __('Enable PayPal sandbox', 'woocommerce-paypal-pro-payment-gateway'),
-                'default' => 'yes',
+                'default' => '',
                 'description' => __('PayPal sandbox can be used to test payments.', 'woocommerce-paypal-pro-payment-gateway'),
+                'desc_tip' => true,
+                'subtab' => 'general',
             ),
+
+            'live_account_connection' => array(
+                'title'             => __('Live Account Connection Status', 'woocommerce-paypal-pro-payment-gateway'),
+                'type'              => 'account_conn_btn',
+                'custom_attrs' => array(
+                    'onclick' => "location.href='https://woocommerce.com'",
+                    'connection_type' => "live",
+                    'connected' => array(
+                        'msg' => __('Live PayPal account is not connected.', 'woocommerce-paypal-pro-payment-gateway'),
+                        'button_text' => __('Disconnect Live Account', 'woocommerce-paypal-pro-payment-gateway'),
+                    ),
+                    'not_connected' => array(
+                        'msg' => __('Live account is connected. If you experience any issues, please disconnect and reconnect.', 'woocommerce-paypal-pro-payment-gateway'),
+                        'button_text' => __('Get PayPal Live Credentials', 'woocommerce-paypal-pro-payment-gateway'),
+                    ),
+                ),
+                'description'       => __('Use this button to connect and obtain the live PayPal API credentials automatically to offer the PayPal Commerce Platform checkout option.', 'woocommerce-paypal-pro-payment-gateway'),
+                'desc_tip'          => true,
+                'subtab'    => 'api_connection',
+            ),
+            'sandbox_account_connection' => array(
+                'title'             => __('Sandbox Account Connection Status', 'woocommerce-paypal-pro-payment-gateway'),
+                'type'              => 'account_conn_btn',
+                'custom_attrs' => array(
+                    'onclick' => "location.href='https://woocommerce.com'",
+                    'connection_type' => "sandbox",
+                    'connected' => array(
+                        'msg' => __('Sandbox PayPal account is not connected.', 'woocommerce-paypal-pro-payment-gateway'),
+                        'button_text' => __('Disconnect Sandbox Account', 'woocommerce-paypal-pro-payment-gateway'),
+                    ),
+                    'not_connected' => array(
+                        'msg' => __('Sandbox account is connected. If you experience any issues, please disconnect and reconnect.', 'woocommerce-paypal-pro-payment-gateway'),
+                        'button_text' => __('Get PayPal Sandbox Credentials', 'woocommerce-paypal-pro-payment-gateway'),
+                    ),
+                ),
+                'description'       => __('Use this button to connect and obtain the sandbox PayPal API credentials automatically to offer the PayPal Commerce Platform checkout option.', 'woocommerce-paypal-pro-payment-gateway'),
+                'desc_tip'          => true,
+                'subtab'    => 'api_connection',
+            ),
+            'delete_access_token_cache' => array(
+                'title'             => __('Delete Access Token Cache', 'woocommerce-paypal-pro-payment-gateway'),
+                'type'              => 'delete_access_token_cache',
+                'custom_attrs' => array(
+                ),
+                'description'       => __('This will delete the PayPal API access token cache. This is useful if you are having issues with the PayPal API after changing/updating the API credentials.', 'woocommerce-paypal-pro-payment-gateway'),
+                'desc_tip'          => true,
+                'subtab'    => 'api_connection',
+            ),
+
             'live_client_id' => array(
                 'title'       => __('Live Client ID', 'woocommerce-paypal-pro-payment-gateway'),
                 'type'        => 'text',
                 'description' => __('Get your client ID from PayPal Developer dashboard.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => '',
                 'desc_tip'    => true,
+                'subtab'    => 'api_credentials',
             ),
             'live_client_secret' => array(
                 'title'       => __('Live Client Secret', 'woocommerce-paypal-pro-payment-gateway'),
@@ -144,6 +200,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 'description' => __('Get your client secret from PayPal Developer dashboard.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => '',
                 'desc_tip'    => true,
+                'subtab'    => 'api_credentials',
             ),
             'sandbox_client_id' => array(
                 'title'       => __('Sandbox Client ID', 'woocommerce-paypal-pro-payment-gateway'),
@@ -151,6 +208,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 'description' => __('Get your sandbox client ID from PayPal Developer dashboard.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => '',
                 'desc_tip'    => true,
+                'subtab'    => 'api_credentials',
             ),
             'sandbox_client_secret' => array(
                 'title'       => __('Sandbox Client Secret', 'woocommerce-paypal-pro-payment-gateway'),
@@ -158,9 +216,231 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 'description' => __('Get your sandbox client secret from PayPal Developer dashboard.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => '',
                 'desc_tip'    => true,
+                'subtab'    => 'api_credentials',
             ),
         );
     }
+
+    public function generate_account_conn_btn_html($key, $data) {
+        $field    = $this->plugin_id . $this->id . '_' . $key;
+
+        $defaults = array(
+            'class'             => '',
+            'css'               => '',
+            'custom_attrs' => array(),
+            'desc_tip'          => false,
+            'description'       => '',
+            'title'             => '',
+        );
+
+        $data = wp_parse_args($data, $defaults);
+
+        $connection_type = isset($data['custom_attrs']['connection_type']) ? $data['custom_attrs']['connection_type'] : 'sandbox';
+
+        $is_sandbox_enabled = $this->get_option('sandbox') == 'yes' ? true : false;
+
+        $ppcp_onboarding_instance = \TTHQ\WC_PP_PRO\Lib\PayPal\Onboarding\PayPal_PPCP_Onboarding::get_instance();
+
+        ob_start();
+        ?>
+        <tr valign="top">
+            <th scope="row" class="titledesc">
+                <label for="<?php echo esc_attr($field); ?>"><?php echo wp_kses_post($data['title']); ?></label>
+                <?php echo $this->get_tooltip_html($data); ?>
+            </th>
+            <td class="forminp">
+                <fieldset>
+                    <legend class="screen-reader-text"><span><?php echo wp_kses_post($data['title']); ?></span></legend>
+                    <?php 
+                    if ($connection_type == 'live') {
+
+                        if (! $is_sandbox_enabled) {
+                            // Check if the live account is connected
+                            $live_account_connection_status = 'connected';
+                            if (empty($this->get_option('live_client_id')) || empty($this->get_option('live_client_secret'))) {
+                                //Live API keys are missing. Account is not connected.
+                                $live_account_connection_status = 'not-connected';
+                            }
+
+                            if ($live_account_connection_status == 'connected') {
+                                //Production account connected
+                                echo '<div class="wcpprog-paypal-live-account-status"><span class="dashicons dashicons-yes" style="color:green;"></span>&nbsp;';
+                                _e("Live account is connected. If you experience any issues, please disconnect and reconnect.", "woocommerce-paypal-pro-payment-gateway");
+                                echo '</div>';
+                                // Show disconnect option for live account.
+                                $ppcp_onboarding_instance->output_production_ac_disconnect_link();
+                            } else {
+                                //Production account is NOT connected.
+                                echo '<div class="wcpprog-paypal-live-account-status"><span class="dashicons dashicons-no" style="color: red;"></span>&nbsp;';
+                                _e("Live PayPal account is not connected. Click the button below to authorize the app and acquire API credentials from your PayPal account.", "woocommerce-paypal-pro-payment-gateway");
+                                echo '</div>';
+                                // Show the onboarding link
+                                $ppcp_onboarding_instance->output_production_onboarding_link_code();
+                            }
+                        } else {
+                            echo '<p class="wcpprog_gray_box">';
+							_e("For live account onboarding, disable the sandbox mode from general settings.", "woocommerce-paypal-pro-payment-gateway");
+							echo '</p>';
+                        }
+                    } else {
+                        if ( $is_sandbox_enabled ) {
+                            //Check if the sandbox account is connected
+                            $sandbox_account_connection_status = 'connected';
+                            if (empty($this->get_option('sandbox_client_id')) || empty($this->get_option('sandbox_client_secret'))) {
+                                //Sandbox API keys are missing. Account is not connected.
+                                $sandbox_account_connection_status = 'not-connected';
+                            }
+
+                            if ($sandbox_account_connection_status == 'connected') {
+                                //Test account connected
+                                echo '<div class="wcpprog-paypal-sandbox-account-status"><span class="dashicons dashicons-yes" style="color:green;"></span>&nbsp;';
+                                _e("Sandbox account is connected. If you experience any issues, please disconnect and reconnect.", "woocommerce-paypal-pro-payment-gateway");
+                                echo '</div>';
+                                //Show disconnect option for sandbox account.
+                                $ppcp_onboarding_instance->output_sandbox_ac_disconnect_link();
+                            } else {
+                                //Sandbox account is NOT connected.
+                                echo '<div class="wcpprog-paypal-sandbox-account-status"><span class="dashicons dashicons-no" style="color: red;"></span>&nbsp;';
+                                _e("Sandbox PayPal account is not connected.", "woocommerce-paypal-pro-payment-gateway");
+                                echo '</div>';
+                                //Show the onboarding link for sandbox account.
+                                $ppcp_onboarding_instance->output_sandbox_onboarding_link_code();
+                            }
+                        } else {
+                            echo '<p class="wcpprog_gray_box">';
+							_e("For sandbox account onboarding, enable the sandbox mode from general settings.", "woocommerce-paypal-pro-payment-gateway");
+							echo '</p>';
+                            // echo '<button class="button button-primary" disabled>'.__('Get PayPal Sandbox Credentials', 'woocommerce-paypal-pro-payment-gateway').'</button>';
+                        }
+                    }
+                    ?>
+                </fieldset>
+            </td>
+        </tr>
+        <?php
+        return ob_get_clean();
+    }
+
+    public function generate_delete_access_token_cache_html($key, $data){
+        $field    = $this->plugin_id . $this->id . '_' . $key;
+        $defaults = array(
+            'class'             => '',
+            'css'               => '',
+            'custom_attrs' => array(),
+            'desc_tip'          => false,
+            'description'       => '',
+            'title'             => '',
+        );
+
+        $data = wp_parse_args($data, $defaults);
+
+        $ppcp_onboarding_instance = \TTHQ\WC_PP_PRO\Lib\PayPal\Onboarding\PayPal_PPCP_Onboarding::get_instance();
+        
+        $output = '';
+        ob_start();
+        ?>
+            <tr valign="top">
+                <th scope="row" class="titledesc">
+                    <label for="<?php echo esc_attr($field); ?>"><?php echo wp_kses_post($data['title']); ?></label>
+                    <?php echo $this->get_tooltip_html($data); ?>
+                </th>
+                <td class="forminp">
+                    <fieldset>
+                        <?php $ppcp_onboarding_instance->output_delete_token_cache_button(); ?>
+                    </fieldset>
+                </td>
+            <tr>
+        <?php
+
+        $output = ob_get_clean();
+
+        return $output;
+    }
+
+    /**
+     * Renders settings fields.
+     *
+     * NOTE: This is an overridden function.
+     */
+    public function admin_options() {
+		$return_path = null;
+		wc_back_header( $this->get_method_title(), esc_html__( 'Return to payments', 'woocommerce' ), \Automattic\WooCommerce\Internal\Admin\Settings\Utils::wc_payments_settings_url( $return_path ) );
+
+		echo wp_kses_post( wpautop( $this->get_method_description() ) );
+
+        $current_tab = isset($_GET['subtab']) && !empty($_GET['subtab']) ? sanitize_text_field($_GET['subtab']) : 'general';
+
+        $subtabs = array(
+            'general' => __('General', 'woocommerce-paypal-pro-payment-gateway'),
+            'api_connection' => __('API Connection', 'woocommerce-paypal-pro-payment-gateway'),
+            'api_credentials' => __('API Credentials', 'woocommerce-paypal-pro-payment-gateway'),
+        );
+
+        echo '<h3 class="nav-tab-wrapper">';
+        foreach ($subtabs as $stab => $title) { 
+            $tab_link = 'admin.php?page=wc-settings&tab=checkout&section=paypal_checkout&subtab='.$stab;
+            $active_class = $stab == $current_tab ? 'nav-tab-active' : ''; 
+            echo '<a class="nav-tab '.esc_attr($active_class).'" href="'.esc_url($tab_link).'">'.esc_html($title).'</a>';
+        } 
+		echo '</h3>';
+
+        $this->render_subtab_fields($current_tab);
+	}
+
+    public function render_subtab_fields($stab = 'general'){
+        $fields = array_map( array( $this, 'set_defaults' ), $this->form_fields );
+
+        $subtab_fields = array();
+        foreach ($fields as $key => $field) {
+            if(isset($field['subtab']) && $field['subtab'] == $stab){
+                $subtab_fields[$key] = $field;
+            }
+
+            continue;
+        }
+
+        echo '<div style="padding: 6px 10px 0px">';
+        if (!empty($subtab_fields)) {
+            echo '<table class="form-table">' . $this->generate_settings_html( $subtab_fields, false ) . '</table>'; // WPCS: XSS ok.
+        } else {
+            echo __('No fields found for this subtab', 'woocommerce-paypal-pro-payment-gateway');
+        }
+        echo '</div>';
+    }
+
+    /**
+	 * Get a field's posted and validated value.
+	 *
+     * NOTE: This is an overridden function. The purpose is to prevent update the fields value which are not present in current subtab screen.
+     * 
+	 * @param string $key Field key.
+	 * @param array  $field Field array.
+	 * @param array  $post_data Posted data.
+	 * @return string
+	 */
+	public function get_field_value( $key, $field, $post_data = array() ) {
+		$type      = $this->get_field_type( $field );
+		$field_key = $this->get_field_key( $key );
+		$post_data = empty( $post_data ) ? $_POST : $post_data; // WPCS: CSRF ok, input var ok.
+		$value     = isset( $post_data[ $field_key ] ) ? $post_data[ $field_key ] : $this->get_option($key);
+
+		if ( isset( $field['sanitize_callback'] ) && is_callable( $field['sanitize_callback'] ) ) {
+			return call_user_func( $field['sanitize_callback'], $value );
+		}
+
+		// Look for a validate_FIELDID_field method for special handling.
+		if ( is_callable( array( $this, 'validate_' . $key . '_field' ) ) ) {
+			return $this->{'validate_' . $key . '_field'}( $key, $value );
+		}
+
+		// Look for a validate_FIELDTYPE_field method.
+		if ( is_callable( array( $this, 'validate_' . $type . '_field' ) ) ) {
+			return $this->{'validate_' . $type . '_field'}( $key, $value );
+		}
+
+		// Fallback to text.
+		return $this->validate_text_field( $key, $value );
+	}
 
     /**
      * Check if this gateway is enabled and available
@@ -186,7 +466,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             return;
         }
 
-        if (empty($this->client_id)) {
+        if (empty($this->is_available())) {
             return;
         }
 
@@ -215,7 +495,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     }
 
     public function payment_fields() {
-    ?>
+        ?>
         <div id="paypal-checkout-button-container"></div>
         <script>
             jQuery(function($) {
@@ -223,7 +503,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 woo_pp_pro_render_ppcp_btn(btn_container_selector);
             })
         </script>
-    <?php
+        <?php
     }
 
     /**
@@ -247,13 +527,13 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         echo '</div>';
 
         echo '<!-- PayPal Checkout: Injecting buttons for block theme -->';
-    ?>
+        ?>
         <script type="text/javascript">
             document.addEventListener('DOMContentLoaded', function() {
                 woo_pp_pro_render_ppcp_btn_with_retry();
             });
         </script>
-<?php
+        <?php
     }
 
     /**

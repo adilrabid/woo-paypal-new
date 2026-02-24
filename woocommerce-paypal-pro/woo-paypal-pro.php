@@ -41,6 +41,7 @@ if (! class_exists('WC_Paypal_Pro_Gateway_Addon')) {
 			add_action('init', array(&$this, 'plugin_init'), 0);
 
 			add_filter('plugin_action_links', array(&$this, 'add_link_to_settings'), 10, 2);
+			add_filter('admin_enqueue_scripts', array(&$this, 'handle_admin_enqueue_scripts'), 10, 2);
 		}
 
 		function define_constants() {
@@ -51,7 +52,12 @@ if (! class_exists('WC_Paypal_Pro_Gateway_Addon')) {
 		}
 
 		function includes() {
-			include_once('woo-paypal-pro-utility-class.php');
+			include_once WC_PP_PRO_ADDON_PATH . '/woo-paypal-pro-utility-class.php';
+			include_once WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-main.php';
+		}
+
+		public function handle_admin_enqueue_scripts(){
+			wp_enqueue_style('woo-pp-pro-admin-styles', WC_PP_PRO_ADDON_URL . '/assets/css/woo-pp-pro-admin-styles.css', null, WC_PP_PRO_ADDON_VERSION );
 		}
 
 		function loader_operations() {
@@ -61,8 +67,8 @@ if (! class_exists('WC_Paypal_Pro_Gateway_Addon')) {
 		function plugins_loaded_handler() {
 			//Runs when plugins_loaded action gets fired
 			if (class_exists('WC_Payment_Gateway')) {
-				include_once('woo-paypal-pro-gateway-class.php');
-				include_once('woo-paypal-pro-gateway-paypal-checkout.php');
+				include_once(WC_PP_PRO_ADDON_PATH . '/woo-paypal-pro-gateway-class.php');
+				include_once(WC_PP_PRO_ADDON_PATH . '/woo-paypal-pro-gateway-paypal-checkout.php');
 				add_filter('woocommerce_payment_gateways', array($this, 'init_payment_gateways'));
 			}
 		}
