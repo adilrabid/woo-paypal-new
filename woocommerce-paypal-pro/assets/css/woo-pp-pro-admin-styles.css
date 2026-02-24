@@ -1,0 +1,10 @@
+.wcpprog_gray_box{
+    /* background-color: #eee; */
+    background-color: lightgray;
+    padding: 10px 16px;
+}
+
+.wcpprog-paypal-sandbox-account-status,
+.wcpprog-paypal-live-account-status {
+    margin-bottom: 10px;
+}

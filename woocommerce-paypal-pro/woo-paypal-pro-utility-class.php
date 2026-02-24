@@ -6,84 +6,108 @@
 
 class WC_PP_PRO_Utility {
 
-    public static $acceptable_cards = array(
-	"Visa",
-	"MasterCard",
-	"Discover",
-	"Amex"
-    );
+	public static $acceptable_cards = array(
+		"Visa",
+		"MasterCard",
+		"Discover",
+		"Amex"
+	);
 
-    function __construct() {
-	//NOP
-    }
+	function __construct() {
+		//NOP
+	}
 
-    static function is_valid_card_number( $toCheck ) {
-	if ( ! is_numeric( $toCheck ) )
-	    return false;
+	static function is_valid_card_number($toCheck) {
+		if (! is_numeric($toCheck))
+			return false;
 
-	$number	 = preg_replace( '/[^0-9]+/', '', $toCheck );
-	$strlen	 = strlen( $number );
-	$sum	 = 0;
+		$number	 = preg_replace('/[^0-9]+/', '', $toCheck);
+		$strlen	 = strlen($number);
+		$sum	 = 0;
 
-	if ( $strlen < 13 )
-	    return false;
+		if ($strlen < 13)
+			return false;
 
-	for ( $i = 0; $i < $strlen; $i ++  ) {
-	    $digit = substr( $number, $strlen - $i - 1, 1 );
-	    if ( $i % 2 == 1 ) {
-		$sub_total = $digit * 2;
-		if ( $sub_total > 9 ) {
-		    $sub_total = 1 + ($sub_total - 10);
+		for ($i = 0; $i < $strlen; $i++) {
+			$digit = substr($number, $strlen - $i - 1, 1);
+			if ($i % 2 == 1) {
+				$sub_total = $digit * 2;
+				if ($sub_total > 9) {
+					$sub_total = 1 + ($sub_total - 10);
+				}
+			} else {
+				$sub_total = $digit;
+			}
+			$sum += $sub_total;
 		}
-	    } else {
-		$sub_total = $digit;
-	    }
-	    $sum += $sub_total;
+
+		if ($sum > 0 and $sum % 10 == 0)
+			return true;
+
+		return false;
 	}
 
-	if ( $sum > 0 AND $sum % 10 == 0 )
-	    return true;
-
-	return false;
-    }
-
-    static function is_valid_card_type( $toCheck ) {
-	return $toCheck AND in_array( $toCheck, self::$acceptable_cards );
-    }
-
-    static function is_valid_expiry( $month, $year ) {
-	$now		 = time();
-	$thisYear	 = (int) date( 'Y', $now );
-	$thisMonth	 = (int) date( 'm', $now );
-
-	if ( is_numeric( $year ) && is_numeric( $month ) ) {
-	    $thisDate	 = mktime( 0, 0, 0, $thisMonth, 1, $thisYear );
-	    $expireDate	 = mktime( 0, 0, 0, $month, 1, $year );
-
-	    return $thisDate <= $expireDate;
+	static function is_valid_card_type($toCheck) {
+		return $toCheck and in_array($toCheck, self::$acceptable_cards);
 	}
 
-	return false;
+	static function is_valid_expiry($month, $year) {
+		$now		 = time();
+		$thisYear	 = (int) date('Y', $now);
+		$thisMonth	 = (int) date('m', $now);
+
+		if (is_numeric($year) && is_numeric($month)) {
+			$thisDate	 = mktime(0, 0, 0, $thisMonth, 1, $thisYear);
+			$expireDate	 = mktime(0, 0, 0, $month, 1, $year);
+
+			return $thisDate <= $expireDate;
+		}
+
+		return false;
+	}
+
+	static function is_valid_cvv_number($toCheck) {
+		$length = strlen($toCheck);
+		return is_numeric($toCheck) and $length > 2 and $length < 5;
+	}
+
+	static function get_user_ip() {
+		$user_ip = '';
+		if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+			$user_ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
+		} else {
+			$user_ip = $_SERVER['REMOTE_ADDR'];
+		}
+
+		if (strstr($user_ip, ',')) {
+			$ip_values = explode(',', $user_ip);
+			$user_ip = $ip_values['0'];
+		}
+
+		return apply_filters('wcpprog_get_user_ip', $user_ip);
+	}
+
+    public static function log( $message, $success = true, $end = false ) {
+		if ($success) {
+			wc_get_logger()->debug( $message, array( 'source' => 'woo_pp_pro' ) );
+		} else {
+			wc_get_logger()->error( $message, array( 'source' => 'woo_pp_pro' ) );
+		}
+
+		if ($end) {
+			wc_get_logger()->debug('-----------------------', array('source' => 'woo_pp_pro'));
+		}
     }
 
-    static function is_valid_cvv_number( $toCheck ) {
-	$length = strlen( $toCheck );
-	return is_numeric( $toCheck ) AND $length > 2 AND $length < 5;
-    }
+	public static function log_array( $message, $success = true, $end = false ) {
+		if ($success) {
+			wc_get_logger()->debug( wc_print_r($message, true), array( 'source' => 'woo_pp_pro' ) );
+		} else {
+			wc_get_logger()->error( wc_print_r($message, true), array( 'source' => 'woo_pp_pro' ) );
+		}
 
-    static function get_user_ip() {
-        $user_ip = '';
-        if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-            $user_ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
-        } else {
-            $user_ip = $_SERVER['REMOTE_ADDR'];
-        }
-
-        if (strstr($user_ip, ',')) {
-            $ip_values = explode(',', $user_ip);
-            $user_ip = $ip_values['0'];
-        }
-
-        return apply_filters('wcpprog_get_user_ip', $user_ip);
+		if ($end) {
+			wc_get_logger()->debug('-----------------------', array('source' => 'woo_pp_pro'));
+		}
     }
 }
