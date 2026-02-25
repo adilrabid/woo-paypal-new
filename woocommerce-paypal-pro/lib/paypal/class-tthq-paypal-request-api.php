@@ -19,11 +19,18 @@ class PayPal_Request_API {
 
 	public $last_error;
 
-	public $app_info = array(
-		'name' => 'Simple Shopping Cart',
-		'url' => 'https://wordpress.org/plugins/wordpress-simple-paypal-shopping-cart/',
-	);
+	public $app_info;
 
+	private function __construct()	{
+		$this->app_info = array(
+			'name' => PayPal_Utils::plugin_data('Name'),
+			'url' => PayPal_Utils::plugin_data('PluginURI'),
+		);
+	}
+
+	/**
+	 * @return self
+	 */
 	public static function get_instance() {
 		if (null === self::$instance) {
 			self::$instance = new self();

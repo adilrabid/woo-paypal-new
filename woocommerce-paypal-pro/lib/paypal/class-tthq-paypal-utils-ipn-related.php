@@ -143,110 +143,58 @@ class PayPal_Utility_IPN_Related {
 		//TODO - We need to update this method to use the correct expected amount and currency from the WP eStore cart.
 		//For now, we will return true to avoid breaking the existing functionality.
 		return true;
-
-		//Get the transaction/order details from PayPal API endpoint - /v2/checkout/orders/{$order_id}
-		$pp_orderID = isset($data['order_id']) ? $data['order_id'] : '';
-		$cart_id = isset($data['cart_id']) ? $data['cart_id'] : '';
-
-		$validation_error_msg = '';
-
-		//This is for on-site checkout only. So the 'mode' and API creds will be whatever is currently set in the settings.
-		$api_injector = new PayPal_Request_API_Injector();
-		$order_details = $api_injector->get_paypal_order_details( $pp_orderID );
-		if( $order_details !== false ){
-			//The order details were retrieved successfully.
-			if(is_object($order_details)){
-				//Convert the object to an array.
-				$order_details = json_decode(json_encode($order_details), true);
-			}
-
-			// Debug purpose only.
-			// PayPal_Utils::log( 'PayPal Order Details: ', true );
-			// PayPal_Utils::log_array( $order_details, true );
-
-			// Check that the order's capture status is COMPLETED.
-			$status = '';
-			// Check if the necessary keys and arrays exist and are not empty
-			if (!empty($order_details['purchase_units']) && !empty($order_details['purchase_units'][0]['payments']) && !empty($order_details['purchase_units'][0]['payments']['captures'])) {
-				// Access the first item in the 'captures' array
-				$capture = $order_details['purchase_units'][0]['payments']['captures'][0];
-				$capture_id = isset($capture['id']) ? $capture['id'] : '';
-				// Check if 'status' is set for the capture
-				if (isset($capture['status'])) {
-					// Extract the 'status' value
-					$status = $capture['status'];
-				}
-			}
-			if ( strtolower($status) != strtolower('COMPLETED') ) {
-				//The order is not completed yet.
-				$validation_error_msg = 'Validation Error! The transaction status is not completed yet. Cart ID: ' . $cart_id . ', PayPal Capture ID: ' . $capture_id . ', Capture Status: ' . $status;
-				PayPal_Utils::log( $validation_error_msg, false );
-				return $validation_error_msg;
-			}
-
-			//Check that the amount matches with what we expect.
-			$amount = isset($order_details['purchase_units'][0]['amount']['value']) ? $order_details['purchase_units'][0]['amount']['value'] : 0;
-
-			$payment_amount_expected = get_post_meta( $cart_id, 'expected_payment_amount', true );
-			if( floatval($amount) < floatval($payment_amount_expected) ){
-				//The amount does not match.
-				$validation_error_msg = 'Validation Error! The payment amount does not match. Cart ID: ' . $cart_id . ', PayPal Order ID: ' . $pp_orderID . ', Amount Received: ' . $amount . ', Amount Expected: ' . $payment_amount_expected;
-				PayPal_Utils::log( $validation_error_msg, false );
-				return $validation_error_msg;
-			}
-
-			//Check that the currency matches with what we expect.
-			$currency = isset($order_details['purchase_units'][0]['amount']['currency_code']) ? $order_details['purchase_units'][0]['amount']['currency_code'] : '';
-			$currency_expected = get_post_meta( $cart_id, 'expected_currency', true );
-			if( $currency != $currency_expected ){
-				//The currency does not match.
-				$validation_error_msg = 'Validation Error! The payment currency does not match. Cart ID: ' . $cart_id . ', PayPal Order ID: ' . $pp_orderID . ', Currency Received: ' . $currency . ', Currency Expected: ' . $currency_expected;
-				PayPal_Utils::log( $validation_error_msg, false );
-				return $validation_error_msg;
-			}
-
-		} else {
-			//Error getting subscription details.
-			$validation_error_msg = 'Validation Error! Failed to get transaction/order details from the PayPal API. PayPal Order ID: ' . $pp_orderID;
-			//TODO - Show additional error details if available.
-			PayPal_Utils::log( $validation_error_msg, false );
-			return $validation_error_msg;
-		}
-
-		//All good. The data is valid.
-		return true;
 	}
 
 	/**
 	 * TODO: This is a plugin specific method.
 	 */
 	public static function complete_post_payment_processing( $data, $txn_data, $ipn_data){
-		//Check if this is a duplicate notification.
-		if( PayPal_Utility_IPN_Related::is_txn_already_processed($ipn_data)){
-			//This transaction notification has already been processed. So we don't need to process it again.
-			return true;
-		}
+		$paypal_order_id = isset($data['order_id']) ? $data['order_id'] : '';
 
-		if(!isset($ipn_data['paypal_order_id']) || empty($ipn_data['paypal_order_id'])){
-			//If the paypal_order_id is not set, we cannot proceed with the post payment processing.
-			PayPal_Utils::log( 'PayPal Order ID is not set in the IPN data. Cannot proceed with post payment processing.', false );
-			return false;
-		}
+		// Find the WooCommerce order by PayPal order ID
+		$orders = wc_get_orders(array(
+            'meta_key' => '_paypal_order_id',
+            'meta_value' => $paypal_order_id,
+            'limit' => 1,
+        ));
 
-		//Get the cart items from the transient.	
-		$transient_key = 'estore_ppcp_order_id_' . $ipn_data['paypal_order_id'];
-		$retrieved_cart_items = get_transient( $transient_key );
+        $wc_order = ! empty($orders) ? $orders[0] : false;
 
-		//Convert the cart items to the format expected by the post payment processing function.
-		$ipn_cart_items = PayPal_Utility_IPN_Related::convert_estore_cart_items_to_ipn_cart_items( $retrieved_cart_items, $ipn_data );
+        if ( empty($wc_order) ) {
+			return new \WP_Error('order_not_found', 'WooCommerce order not found');
+        }
 
-		//PayPal_Utils::log_array( $retrieved_cart_items, true );
-		PayPal_Utils::log_array( $ipn_cart_items, true );
+        // Update the WooCommerce order with capture details
+        if (isset($txn_data['payer'])) {
+            $payer = $txn_data['payer'];
 
-		eStore_payment_debug( 'PPCP Checkout - calling eStore_do_post_payment_tasks().', true );		
-		eStore_do_post_payment_tasks($ipn_data, $ipn_cart_items);
+            if (isset($payer['name'])) {
+                $wc_order->set_billing_first_name($payer['name']['given_name'] ?? '');
+                $wc_order->set_billing_last_name($payer['name']['surname'] ?? '');
+            }
 
-		return true;
+            if (isset($payer['email_address'])) {
+                $wc_order->set_billing_email($payer['email_address']);
+            }
+        }
+
+        // Store PayPal transaction details
+        if (isset($txn_data['purchase_units'][0]['payments']['captures'][0])) {
+            $capture = $txn_data['purchase_units'][0]['payments']['captures'][0];
+            $wc_order->update_meta_data('_paypal_transaction_id', $capture['id']);
+            $wc_order->update_meta_data('_paypal_capture_response', $txn_data);
+        }
+
+        $wc_order->save();
+
+		// Mark order as paid and add note
+        $wc_order->payment_complete($paypal_order_id);
+        $wc_order->add_order_note(sprintf(__('PayPal payment completed. PayPal Order ID: %s', 'woocommerce-paypal-pro-payment-gateway'), $paypal_order_id));
+
+        // Empty cart
+        WC()->cart->empty_cart();
+
+		return $wc_order;
 	}
 
 	public static function convert_estore_cart_items_to_ipn_cart_items($estore_cart_items, $ipn_data = array()) {

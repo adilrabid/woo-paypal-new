@@ -16,11 +16,11 @@ class PayPal_Request_API_Injector {
         public function __construct() {
             //Setup the PayPal API request object so that the injector can use it to make pre-made API requests easily.
             $settings = PayPal_PPCP_Config::get_instance();
-            $this->live_client_id = $settings->get_value('paypal-live-client-id');
-            $this->live_secret = $settings->get_value('paypal-live-secret-key');    
-            $this->sandbox_client_id = $settings->get_value('paypal-sandbox-client-id');
-            $this->sandbox_secret = $settings->get_value('paypal-sandbox-secret-key');
-            $sandbox_enabled = $settings->get_value('enable-sandbox-testing');
+            $this->live_client_id = $settings->value('live_client_id');
+            $this->live_secret = $settings->value('live_client_secret');    
+            $this->sandbox_client_id = $settings->value('sandbox_client_id');
+            $this->sandbox_secret = $settings->value('sandbox_client_secret');
+            $sandbox_enabled = $settings->value('sandbox_enabled');
             $this->mode = $sandbox_enabled ? 'sandbox' : 'production';
             $paypal_req_api = PayPal_Request_API::get_instance();
             $paypal_req_api->set_mode_and_api_credentials( $this->mode, $this->live_client_id, $this->live_secret, $this->sandbox_client_id, $this->sandbox_secret );            
@@ -336,6 +336,7 @@ class PayPal_Request_API_Injector {
             $description = isset($data['description']) ? $data['description'] : '';
             //$item_name = isset($data['item_name']) ? $data['item_name'] : '';
             //$quantity = isset($data['quantity']) ? $data['quantity'] : 1;
+            $application_context = isset($data['application_context']) ? $data['application_context'] : array();
 
             //Get the shipping preference.
             $shipping_preference = isset($data['shipping_preference']) ? $data['shipping_preference'] : 'GET_FROM_FILE';
@@ -398,6 +399,10 @@ class PayPal_Request_API_Injector {
                         ],
                     ],
                 ];
+            }
+
+            if (!empty($application_context)) {
+                $order_data['application_context'] = $application_context;
             }
             
             //Debugging purpose.

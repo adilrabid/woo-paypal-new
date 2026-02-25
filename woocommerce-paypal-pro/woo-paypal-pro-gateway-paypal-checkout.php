@@ -6,6 +6,8 @@
  * Adds PayPal Checkout as a separate payment gateway alongside PayPal Pro.
  */
 
+use TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utils;
+
 if (! defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
@@ -55,12 +57,6 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 
         // For cart shortcode, we need to use woocommerce hook to render buttons
         add_action('woocommerce_after_cart_totals', array($this, 'render_paypal_button_on_cart_shortcode'), 15);
-
-        // AJAX actions (always add these for security)
-        add_action('wp_ajax_paypal_checkout_create_order', array($this, 'create_paypal_order'));
-        add_action('wp_ajax_nopriv_paypal_checkout_create_order', array($this, 'create_paypal_order'));
-        add_action('wp_ajax_paypal_checkout_capture_order', array($this, 'capture_paypal_order'));
-        add_action('wp_ajax_nopriv_paypal_checkout_capture_order', array($this, 'capture_paypal_order'));
     }
 
     /**
@@ -488,7 +484,9 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 
         wp_localize_script('paypal-checkout-sdk', 'wc_paypal_checkout_params', array(
             'ajax_url'    => admin_url('admin-ajax.php'),
-            'nonce'       => wp_create_nonce('wc_paypal_checkout_nonce'),
+            'nonce'       => wp_create_nonce(PayPal_Utils::auto_prefix('pp_checkout_nonce')),
+            'create_order_ajax_action' => PayPal_Utils::auto_prefix('pp_create_order'),
+            'capture_order_ajax_action' => PayPal_Utils::auto_prefix('pp_capture_order'),
             'currency'    => get_woocommerce_currency(),
             'total'       => WC()->cart ? WC()->cart->get_total('raw') : 0,
         ));
@@ -537,89 +535,6 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     }
 
     /**
-     * Create PayPal order via AJAX
-     */
-    public function create_paypal_order() {
-        check_ajax_referer('wc_paypal_checkout_nonce', 'nonce');
-
-        // Create WooCommerce order from current cart
-        $wc_order = $this->create_wc_order_from_cart();
-
-        if (! $wc_order) {
-            wp_send_json_error(array('message' => 'Failed to create order'));
-        }
-
-        // Get PayPal access token
-        $access_token = $this->get_paypal_access_token();
-        if (! $access_token) {
-            wp_send_json_error(array('message' => 'Failed to get PayPal access token'));
-        }
-
-        // Prepare order data for PayPal
-        $order_data = $this->prepare_paypal_order_data($wc_order);
-
-        // Create PayPal order
-        $paypal_order_id = $this->create_paypal_order_api($access_token, $order_data);
-
-        if (! $paypal_order_id) {
-            wp_send_json_error(array('message' => 'Failed to create PayPal order'));
-        }
-
-        // Store PayPal order ID in WC order meta
-        $wc_order->update_meta_data('_paypal_order_id', $paypal_order_id);
-        $wc_order->save();
-
-        wp_send_json_success(array('order_id' => $paypal_order_id, 'wc_order_id' => $wc_order->get_id()));
-    }
-
-    /**
-     * Capture PayPal order via AJAX
-     */
-    public function capture_paypal_order() {
-        check_ajax_referer('wc_paypal_checkout_nonce', 'nonce');
-
-        $paypal_order_id = sanitize_text_field($_POST['paypal_order_id']);
-
-        if (empty($paypal_order_id)) {
-            wp_send_json_error(array('message' => 'PayPal Order ID is required'));
-        }
-
-        // Get PayPal access token
-        $access_token = $this->get_paypal_access_token();
-        if (! $access_token) {
-            wp_send_json_error(array('message' => 'Failed to get PayPal access token'));
-        }
-
-        // Capture the PayPal order
-        $capture_response = $this->capture_paypal_order_api($access_token, $paypal_order_id);
-
-        if (! $capture_response) {
-            wp_send_json_error(array('message' => 'Failed to capture PayPal payment'));
-        }
-
-        // Find the WooCommerce order by PayPal order ID
-        $wc_order = $this->get_wc_order_by_paypal_id($paypal_order_id);
-
-        if (! $wc_order) {
-            wp_send_json_error(array('message' => 'WooCommerce order not found'));
-        }
-
-        // Update the WooCommerce order with capture details
-        $this->update_wc_order_with_capture_data($wc_order, $capture_response);
-
-        // Mark order as paid and add note
-        $wc_order->payment_complete($paypal_order_id);
-        $wc_order->add_order_note(sprintf(__('PayPal payment completed. PayPal Order ID: %s', 'woocommerce-paypal-pro-payment-gateway'), $paypal_order_id));
-
-        // Empty cart
-        WC()->cart->empty_cart();
-
-        wp_send_json_success(array(
-            'redirect' => $wc_order->get_checkout_order_received_url()
-        ));
-    }
-
-    /**
      * Process the payment (required by WC_Payment_Gateway)
      */
     public function process_payment($order_id) {
@@ -628,209 +543,4 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'redirect' => '',
         );
     }
-
-    /**
-     * Create WooCommerce order from current cart
-     */
-    private function create_wc_order_from_cart() {
-        try {
-            // Create order from cart
-            $checkout = WC()->checkout();
-
-            // Get posted data
-            $data = array();
-            if (is_user_logged_in()) {
-                $user = wp_get_current_user();
-                $data['billing_email'] = $user->user_email;
-                $data['billing_first_name'] = $user->first_name;
-                $data['billing_last_name'] = $user->last_name;
-            } else {
-                // For guest checkout, we'll get these from PayPal later
-                $data['billing_email'] = 'paypal-checkout@example.com';
-                $data['billing_first_name'] = 'PayPal';
-                $data['billing_last_name'] = 'Customer';
-            }
-
-            // Create the order
-            $order_id = $checkout->create_order($data);
-
-            if (is_wp_error($order_id)) {
-                return false;
-            }
-
-            $order = wc_get_order($order_id);
-
-            // Set payment method
-            $order->set_payment_method($this);
-            $order->set_payment_method_title($this->get_title());
-
-            // Update status to pending
-            $order->update_status('pending', __('PayPal Checkout payment pending.', 'woocommerce-paypal-pro-payment-gateway'));
-
-            $order->save();
-
-            return $order;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    /**
-     * Get PayPal access token
-     */
-    private function get_paypal_access_token() {
-        $base_url = $this->sandbox ? 'https://api.sandbox.paypal.com' : 'https://api.paypal.com';
-
-        $response = wp_remote_post($base_url . '/v1/oauth2/token', array(
-            'headers' => array(
-                'Accept' => 'application/json',
-                'Accept-Language' => 'en_US',
-                'Authorization' => 'Basic ' . base64_encode($this->client_id . ':' . $this->client_secret),
-            ),
-            'body' => 'grant_type=client_credentials',
-            'timeout' => 30,
-        ));
-
-        if (is_wp_error($response)) {
-            return false;
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        return isset($data['access_token']) ? $data['access_token'] : false;
-    }
-
-    /**
-     * Prepare PayPal order data
-     */
-    private function prepare_paypal_order_data($wc_order) {
-        $currency = get_woocommerce_currency();
-        $total = $wc_order->get_total();
-
-        return array(
-            'intent' => 'CAPTURE',
-            'purchase_units' => array(
-                array(
-                    'reference_id' => $wc_order->get_id(),
-                    'amount' => array(
-                        'currency_code' => $currency,
-                        'value' => number_format($total, 2, '.', '')
-                    ),
-                    'description' => sprintf(__('Order %s', 'woocommerce-paypal-pro-payment-gateway'), $wc_order->get_order_number())
-                )
-            ),
-            'application_context' => array(
-                'brand_name' => get_bloginfo('name'),
-                'user_action' => 'PAY_NOW',
-                'return_url' => $wc_order->get_checkout_order_received_url(),
-                'cancel_url' => wc_get_cart_url()
-            )
-        );
-    }
-
-    /**
-     * Create PayPal order via API
-     */
-    private function create_paypal_order_api($access_token, $order_data) {
-        $base_url = $this->sandbox ? 'https://api.sandbox.paypal.com' : 'https://api.paypal.com';
-
-        $response = wp_remote_post($base_url . '/v2/checkout/orders', array(
-            'headers' => array(
-                'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer ' . $access_token,
-            ),
-            'body' => wp_json_encode($order_data),
-            'timeout' => 30,
-        ));
-
-        if (is_wp_error($response)) {
-            return false;
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        return isset($data['id']) ? $data['id'] : false;
-    }
-
-    /**
-     * Capture PayPal order via API
-     */
-    private function capture_paypal_order_api($access_token, $order_id) {
-        $base_url = $this->sandbox ? 'https://api.sandbox.paypal.com' : 'https://api.paypal.com';
-
-        $response = wp_remote_post($base_url . '/v2/checkout/orders/' . $order_id . '/capture', array(
-            'headers' => array(
-                'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer ' . $access_token,
-            ),
-            'timeout' => 30,
-        ));
-
-        if (is_wp_error($response)) {
-            return false;
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        return $data;
-    }
-
-    /**
-     * Get WooCommerce order by PayPal order ID
-     */
-    private function get_wc_order_by_paypal_id($paypal_order_id) {
-        $orders = wc_get_orders(array(
-            'meta_key' => '_paypal_order_id',
-            'meta_value' => $paypal_order_id,
-            'limit' => 1,
-        ));
-
-        return ! empty($orders) ? $orders[0] : false;
-    }
-
-    /**
-     * Update WooCommerce order with capture data
-     */
-    private function update_wc_order_with_capture_data($wc_order, $capture_response) {
-        // Update billing details from PayPal if available
-        if (isset($capture_response['payer'])) {
-            $payer = $capture_response['payer'];
-
-            if (isset($payer['name'])) {
-                $wc_order->set_billing_first_name($payer['name']['given_name'] ?? '');
-                $wc_order->set_billing_last_name($payer['name']['surname'] ?? '');
-            }
-
-            if (isset($payer['email_address'])) {
-                $wc_order->set_billing_email($payer['email_address']);
-            }
-        }
-
-        // Store PayPal transaction details
-        if (isset($capture_response['purchase_units'][0]['payments']['captures'][0])) {
-            $capture = $capture_response['purchase_units'][0]['payments']['captures'][0];
-            $wc_order->update_meta_data('_paypal_transaction_id', $capture['id']);
-            $wc_order->update_meta_data('_paypal_capture_response', $capture_response);
-        }
-
-        $wc_order->save();
-    }
 }
-
-// Add a simple test hook that should always fire to verify the file is loaded
-add_action('wp_footer', function () {
-    echo '<!-- PayPal Checkout Gateway File Loaded -->';
-});
-
-// Add page detection for debugging
-add_action('wp_footer', function () {
-    if (is_cart()) {
-        echo '<!-- This is the CART page -->';
-    }
-    if (is_checkout()) {
-        echo '<!-- This is the CHECKOUT page -->';
-    }
-}, 999);
