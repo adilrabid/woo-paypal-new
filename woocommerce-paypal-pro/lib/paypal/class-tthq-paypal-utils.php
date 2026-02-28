@@ -3,10 +3,44 @@
 namespace TTHQ\WC_PP_PRO\Lib\PayPal;
 
 class PayPal_Utils{
+
+	public static function plugin_data($key, $default = ''){
+		if ( ! function_exists( 'get_plugin_data' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		$plugin_data = get_plugin_data( PayPal_PPCP_Config::get('plugin_root_file') );
+
+		$result = isset($plugin_data[$key]) ? $plugin_data[$key] : $default;
+
+		return $result;
+	}
+
+	public static function get_api_keys_by_environment_mode($environment_mode = 'production'){
+		$settings = PayPal_PPCP_Config::get_instance();
+
+		if( empty($environment_mode) ){
+            //Get the environment mode from settings.
+			$environment_mode = self::get_api_environment_mode_from_settings();
+        }
+
+        if( in_array(strtolower($environment_mode), array('live', 'production')) ){
+            $client_id = $settings->value('live_client_id');
+            $secret = $settings->value('live_client_secret');
+        }else{
+			$client_id = $settings->value('sandbox_client_id');
+            $secret = $settings->value('sandbox_client_secret');
+        }
+
+		return array(
+			'client_id' => $client_id,
+			'client_secret' => $secret,
+		);
+	}
     
     public static function get_api_environment_mode_from_settings(){
         $settings = PayPal_PPCP_Config::get_instance();
-        $sandbox_enabled = $settings->get_value( PayPal_PPCP_Config::key('enable_sandbox_settings_key') );//The value will be checked="checked" or empty string.
+        $sandbox_enabled = $settings->value( 'sandbox_enabled' );//The value will be checked="checked" or empty string.
         if( !empty( $sandbox_enabled ) && $sandbox_enabled == 'yes' ){
             $environment_mode = 'sandbox';
         }else{

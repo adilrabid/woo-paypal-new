@@ -12,8 +12,10 @@ class PayPal_Bearer {
 		//NOP
 	}
 
-	/*
+	/**
 	 * This needs to be a Singleton class. To make sure that the object and data is consistent throughout.
+	 * 
+	 * @return self
 	 */
 	public static function get_instance() {
 		if (null === self::$instance) {
@@ -51,31 +53,18 @@ class PayPal_Bearer {
 
 	/**
 	 * Creates a new bearer token.
-	 * @return access_token
+	 *
+	 * @param string $environment_mode
+	 * 
+	 * @return string|bool Access Token String. Bool FALSE if fails.
 	 */
 	public function create_new_bearer_token( $environment_mode = '' ) {
-        //If the environment mode is passed, then use that, otherwise use the mode from settings.
-        $settings = PayPal_PPCP_Config::get_instance();
-
-        if( empty($environment_mode) ){
-            //Get the environment mode from settings.
-			$sandbox_enabled = $settings->get_value( 'enable-sandbox-testing' );//The value will be checked="checked" or empty string.
-            if( !empty($sandbox_enabled) ){
-                $environment_mode = 'sandbox';
-            }else{
-                $environment_mode = 'production';
-            }
-        }
-
         PayPal_Utils::log('[New Token] Creating a new PayPal API access token for environment mode: ' . $environment_mode, true);
 
-        if( $environment_mode == 'sandbox' ){
-            $client_id = $settings->get_value('paypal-sandbox-client-id');
-            $secret = $settings->get_value('paypal-sandbox-secret-key');
-        }else{
-            $client_id = $settings->get_value('paypal-live-client-id');
-            $secret = $settings->get_value('paypal-live-secret-key');
-        }
+		$api_keys = PayPal_Utils::get_api_keys_by_environment_mode($environment_mode);
+
+		$client_id = isset($api_keys['client_id']) ? $api_keys['client_id'] : '';
+		$secret = isset($api_keys['client_secret']) ? $api_keys['client_secret'] : '';
 
 		//Check if the client id and secret are set before trying to create a bearer token using those values.
 		if( empty( $client_id ) || empty( $secret ) ){

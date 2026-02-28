@@ -37,6 +37,7 @@ class PayPal_PPCP_Config {
 		$configs = array(
 
 			'plugin_shortname' => 'wcpprog',
+			'plugin_root_file' => WC_PP_PRO_ADDON_FILE,
 			
 			/**
 			 * PayPal PPCP settings group related
@@ -57,7 +58,7 @@ class PayPal_PPCP_Config {
 			 */
 			'settings_key' => array(
 				
-				'enable_sandbox_settings_key' => 'sandbox',
+				'sandbox_enabled' => 'sandbox',
 				
 				/**
 				 * PayPal api credentials related
@@ -149,5 +150,9 @@ class PayPal_PPCP_Config {
 		}
 
 		return $default;
+	}
+
+	public function value($key, $default = ''){
+		return $this->get_value(self::key($key), $default);
 	}
 }

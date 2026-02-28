@@ -55,7 +55,7 @@ class PayPal_Main {
 		}
 
 		//Initialize the PayPal Ajax Create and Capture Order Class so it can handle the ajax request(s) for one-time payments.
-		// new PayPal_Button_Ajax_Handler();
+		new PayPal_Button_Ajax_Handler();
 
 		//Initialize the PayPal Ajax Create and Process subscription events so it can handle the ajax request(s) for subscriptions.
 		// new PayPal_Button_Sub_Ajax_Handler();

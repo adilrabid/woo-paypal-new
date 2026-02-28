@@ -8,6 +8,8 @@ namespace TTHQ\WC_PP_PRO\Lib\PayPal;
  */
 class PayPal_Button_Ajax_Handler {
 
+	public $wc_paypal_ppcp;
+
 	public function __construct() {
 		//Handle it at 'wp_loaded' hook since custom post types will also be available at that point.
 		add_action( 'wp_loaded', array(&$this, 'setup_ajax_request_actions' ) );
@@ -19,21 +21,21 @@ class PayPal_Button_Ajax_Handler {
 	public function setup_ajax_request_actions() {
 		/*----- Cart Checkout Related -----*/
 		//Handle the create-order ajax request for 'Add to Cart' type buttons.
-		add_action( PayPal_Utils::hook('pp_create_order', true), array(&$this, 'pp_create_order' ) );
-		add_action( PayPal_Utils::hook('pp_create_order', true, true), array(&$this, 'pp_create_order' ) );
+		add_action( PayPal_Utils::hook('pp_create_order', true), array($this, 'pp_create_order' ) );
+		add_action( PayPal_Utils::hook('pp_create_order', true, true), array($this, 'pp_create_order' ) );
 		
 		//Handle the capture-order ajax request for 'Add to Cart' type buttons.
-		add_action( PayPal_Utils::hook('pp_capture_order', true), array(&$this, 'pp_capture_order' ) );
-		add_action( PayPal_Utils::hook('pp_capture_order', true, true), array(&$this, 'pp_capture_order' ) );	
+		add_action( PayPal_Utils::hook('pp_capture_order', true), array($this, 'pp_capture_order' ) );
+		add_action( PayPal_Utils::hook('pp_capture_order', true, true), array($this, 'pp_capture_order' ) );	
 
-		/*----- Buy Now Button Related -----*/
-		//Handle the create-order ajax request for 'Buy Now' type buttons.
-		add_action( PayPal_Utils::hook('buy_now_pp_create_order', true), array(&$this, 'buy_now_pp_create_order' ) );
-		add_action( PayPal_Utils::hook('buy_now_pp_create_order', true, true), array(&$this, 'buy_now_pp_create_order' ) );		
+		// /*----- Buy Now Button Related -----*/
+		// //Handle the create-order ajax request for 'Buy Now' type buttons.
+		// add_action( PayPal_Utils::hook('buy_now_pp_create_order', true), array($this, 'buy_now_pp_create_order' ) );
+		// add_action( PayPal_Utils::hook('buy_now_pp_create_order', true, true), array($this, 'buy_now_pp_create_order' ) );		
 
-		//Handle the capture-order ajax request for 'Buy Now' type buttons.
-		add_action( PayPal_Utils::hook('buy_now_pp_capture_order', true), array(&$this, 'buy_now_pp_capture_order' ) );
-		add_action( PayPal_Utils::hook('buy_now_pp_capture_order', true, true), array(&$this, 'buy_now_pp_capture_order' ) );
+		// //Handle the capture-order ajax request for 'Buy Now' type buttons.
+		// add_action( PayPal_Utils::hook('buy_now_pp_capture_order', true), array($this, 'buy_now_pp_capture_order' ) );
+		// add_action( PayPal_Utils::hook('buy_now_pp_capture_order', true, true), array($this, 'buy_now_pp_capture_order' ) );
 
 	}
 
@@ -41,119 +43,49 @@ class PayPal_Button_Ajax_Handler {
 	 * Handle the pp_create_order ajax request for standard cart checkout.
 	 */
 	 public function pp_create_order(){
-		//Get the data from the request
-		$data = isset( $_POST['data'] ) ? stripslashes_deep( $_POST['data'] ) : array();
-		if ( empty( $data ) ) {
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Empty data received.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-		}
-		
-		if( !is_array( $data ) ){
-			//Convert the JSON string to an array (Vanilla JS AJAX data will be in JSON format).
-			$data = json_decode( $data, true);		
+		if(! check_ajax_referer(PayPal_Utils::auto_prefix('pp_checkout_nonce'), 'nonce', false)){
+			wp_send_json_error(array('message' => 'Failed to create order. Nonce verification failed!'));
 		}
 
-		$cart_id = isset( $data['cart_id'] ) ? sanitize_text_field( $data['cart_id'] ) : '';
-		$on_page_button_id = isset( $data['on_page_button_id'] ) ? sanitize_text_field( $data['on_page_button_id'] ) : '';
-		PayPal_Utils::log( 'pp_create_order ajax request received for createOrder. Cart ID: '.$cart_id.', On Page Button ID: ' . $on_page_button_id, true );
+		$gateways = WC()->payment_gateways()->payment_gateways();
 
-		// Check nonce.
-		if ( ! check_ajax_referer( $on_page_button_id, '_wpnonce', false ) ) {
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Nonce check failed. The page was most likely cached. Please reload the page and try again.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-			exit;
-		}
-		
-		//Ensure the PHP session is there so we can get details from the cart.
-		//NOTE: We can also, save the cart items to a transient with a unique key (e.g. cart_id) when the button is rendered then retrieve it here.
-		if (session_status() === PHP_SESSION_NONE) {
-			session_start();
+		$wc_paypal_ppcp = null;
+		if ( isset( $gateways['paypal_checkout'] ) ) {
+			$wc_paypal_ppcp = $gateways['paypal_checkout'];
 		}
 
-		//Get the cart and item details.
-		$description = 'WP eStore Cart Order';//Default description.
-		$description = htmlspecialchars($description);
-		$description = substr($description, 0, 127);//Limit the item name to 127 characters (PayPal limit)
-
-		//Get all the payment totals/amount
-		$cart_sub_total = eStore_get_cart_total();
-		$formatted_sub_total = number_format($cart_sub_total,2,'.','');
-		
-		//Shipping amount
-		//Note: use the following function to avoid recalculating shipping if it's already zero due to free shipping discount or store pickup option.
-		$cart_postage_cost = eStore_calculate_cart_shipping_if_not_zero();
-		$formatted_postage_cost = number_format($cart_postage_cost, 2, '.', '');
-		//PayPal_Utils::log( 'Cart shipping cost: ' . $cart_postage_cost, true );
-
-		//Tax amount
-		$cart_total_tax = eStore_calculate_total_cart_tax();
-		$formatted_cart_total_tax = number_format($cart_total_tax, 2, '.', '');
-
-		//Grand total
-		$cart_grand_total = $cart_sub_total + $cart_postage_cost + $cart_total_tax;
-		$formatted_grand_total = number_format($cart_grand_total, 2, '.', '');
-
-		//Get the currency
-		$currency = !empty(get_option( 'cart_payment_currency' )) ? get_option( 'cart_payment_currency' ) : 'USD';
-
-		//Get the cart items from the session.
-		// Note: We can also use a transient to store the cart items. Logic in the comment below.
-		// - when PPCP button is rendered, we save cart items to transient with a unique key (e.g. cart_id).
-		// - pass that key to the AJAX request.
-		// - retrieve the cart items from transient using that key.
-		$cart_items = isset($_SESSION['eStore_cart']) ? $_SESSION['eStore_cart'] : array();
-		//Debugging purpose.
-		//PayPal_Utils::log_array( $cart_items, true );
-		
-
-		//Ensure the cart items are not empty.
-		if( empty($cart_items) ){
-			//If the cart is empty, then we cannot create an order.
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'The cart is empty. Please add items to the cart before proceeding.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-			exit;
+		if (empty($wc_paypal_ppcp)) {
+			wp_send_json_error(array('message' => 'Failed to create order. Payment Gateway not found.'));
 		}
 
-		//Create the purchase units items array from the cart items.
-		$pu_items = PayPal_Utils::create_purchase_units_items_list( $cart_items );
+		$this->wc_paypal_ppcp = $wc_paypal_ppcp;
 
-		//Get the shipping preference.
-		$all_items_digital = is_all_eStore_cart_items_digital();
-		if( $all_items_digital ){
-			//This will only happen if the shortcode attribute 'digital' is set to '1' for all the items in the cart. 
-			//So we don't need to check postage cost.
-			$shipping_preference = 'NO_SHIPPING';
-		} else {
-			//At least one item is not digital. Get the customer-provided shipping address on the PayPal site.
-			$shipping_preference = 'GET_FROM_FILE';//This is also the default value for the shipping preference.
-		}
-		PayPal_Utils::log("Shipping preference based on the 'all items digital' flag: " . $shipping_preference, true);
+        // Create WooCommerce order from current cart
+        $wc_order = $this->create_wc_order_from_cart();
+
+        if (! $wc_order) {
+            wp_send_json_error(array('message' => 'Failed to create order'));
+        }
+
+		$description = sprintf(__('Order %s', 'woocommerce-paypal-pro-payment-gateway'), $wc_order->get_order_number());
 
 		// Create the order using the PayPal API.
 		// https://developer.paypal.com/docs/api/orders/v2/#orders_create
 		$data = array(
 			'description' => $description,
-			'grand_total' => $formatted_grand_total,
-			'sub_total' => $formatted_sub_total,
-			'postage_cost' => $formatted_postage_cost,
-			'tax_total' => $formatted_cart_total_tax,
-			'currency' => $currency,
-			'shipping_preference' => $shipping_preference,
+			'grand_total' => $wc_order->get_total(),
+			// 'sub_total' => $formatted_sub_total,
+			// 'postage_cost' => $formatted_postage_cost,
+			// 'tax' => $formatted_tax_amount,
+			'currency' => get_woocommerce_currency(),
+			// 'shipping_preference' => $shipping_preference,
+			'application_context' => array(
+                'brand_name' => get_bloginfo('name'),
+                'user_action' => 'PAY_NOW',
+                'return_url' => $wc_order->get_checkout_order_received_url(),
+                'cancel_url' => wc_get_cart_url()
+            )
 		);
-		//Debugging purposes.		
-		PayPal_Utils::log_array( $data, true );
 
 		//Set the additional args for the API call.
 		$additional_args = array();
@@ -161,93 +93,86 @@ class PayPal_Button_Ajax_Handler {
 
 		//Create the order using the PayPal API.
 		$api_injector = new PayPal_Request_API_Injector();
-		$response = $api_injector->create_paypal_order_by_url_and_args( $data, $additional_args, $pu_items );
-            
+        $response = $api_injector->create_paypal_order_by_url_and_args($data, $additional_args);
+
+		PayPal_Utils::log_array(json_decode($response));
+
 		//We requested the response body to be returned, so we need to JSON decode it.
 		if( $response !== false ){
 			$order_data = json_decode( $response, true );
 			$paypal_order_id = isset( $order_data['id'] ) ? $order_data['id'] : '';
 		} else {
 			//Failed to create the order.
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Failed to create the order using PayPal API. Enable the debug logging feature to get more details.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-			exit;
+            wp_send_json_error(array('message' => 'Failed to create PayPal order'));
 		}
 
-        PayPal_Utils::log( 'PayPal Order ID: ' . $paypal_order_id, true );
+        // Store PayPal order ID in WC order meta
+        $wc_order->update_meta_data('_paypal_order_id', $paypal_order_id);
+        $wc_order->save();
 
-		//Save the order ID in the transient for 12 hours (so we can use it later in the capture order request).
-		//(we will use this one to process in the IPN processing stage).
-		$transient_key = 'estore_ppcp_order_id_' . $paypal_order_id;
-		set_transient( $transient_key, $cart_items, 12 * HOUR_IN_SECONDS );
-
-		//TODO 
-		//Save the grand total and currency in the order CPT (we will match it with the PayPal response later in verification stage).
-		//update_post_meta( $cart_id, 'expected_payment_amount', $formatted_grand_total );
-		//update_post_meta( $cart_id, 'expected_currency', $currency );
-
-		//Save the current cart items with the PayPal order ID in the order CPT (we will use this one to process in the IPN processing stage).
-		//$cart_items = get_post_meta($cart_id, 'wp_estore_cart_items', true);
-		//$wp_estore_cart_items_pp_order_id_key = 'wp_estore_cart_items_' . $paypal_order_id;
-		//update_post_meta( $cart_id, $wp_estore_cart_items_pp_order_id_key, $cart_items );
-
-		//If everything is processed successfully, send the success response.
-		wp_send_json( array( 'success' => true, 'order_id' => $paypal_order_id, 'order_data' => $order_data ) );
-		exit;
+        wp_send_json_success(array('order_id' => $paypal_order_id, 'wc_order_id' => $wc_order->get_id()));
     }
 
+	/**
+     * Create WooCommerce order from current cart
+     */
+    private function create_wc_order_from_cart() {
+        try {
+            // Create order from cart
+            $checkout = WC()->checkout();
+
+            // Get posted data
+            $data = array();
+            if (is_user_logged_in()) {
+                $user = wp_get_current_user();
+                $data['billing_email'] = $user->user_email;
+                $data['billing_first_name'] = $user->first_name;
+                $data['billing_last_name'] = $user->last_name;
+            } else {
+                // For guest checkout, we'll get these from PayPal later
+                $data['billing_email'] = 'paypal-checkout@example.com';
+                $data['billing_first_name'] = 'PayPal';
+                $data['billing_last_name'] = 'Customer';
+            }
+
+            // Create the order
+            $order_id = $checkout->create_order($data);
+
+            if (is_wp_error($order_id)) {
+                return false;
+            }
+
+            $order = wc_get_order($order_id);
+
+            // Set payment method
+            $order->set_payment_method($this->wc_paypal_ppcp);
+            $order->set_payment_method_title($this->wc_paypal_ppcp->get_title());
+
+            // Update status to pending
+            $order->update_status('pending', __('PayPal Checkout payment pending.', 'woocommerce-paypal-pro-payment-gateway'));
+
+            $order->save();
+
+            return $order;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
 
 	/**
 	 * Handles the order capture for standard cart checkout.
 	 */
 	public function pp_capture_order(){
-
-		//Get the data from the request
-		$data = isset( $_POST['data'] ) ? stripslashes_deep( $_POST['data'] ) : array();
-		if ( empty( $data ) ) {
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Empty data received.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-		}
-		
-		if( !is_array( $data ) ){
-			//Convert the JSON string to an array (Vanilla JS AJAX data will be in JSON format).
-			$data = json_decode( $data, true);		
+		if(! check_ajax_referer(PayPal_Utils::auto_prefix('pp_checkout_nonce'), 'nonce', false)){
+			wp_send_json_error(array('message' => 'Failed to create order. Nonce verification failed!'));
 		}
 
-		//Get the order_id from data
-		$order_id = isset( $data['order_id'] ) ? sanitize_text_field($data['order_id']) : '';
-		if ( empty( $order_id ) ) {
+        $paypal_order_id = isset($_POST['paypal_order_id']) ? sanitize_text_field($_POST['paypal_order_id']) : '';
+
+        if (empty($paypal_order_id)) {
 			PayPal_Utils::log( 'pp_capture_order - empty order ID received.', false );
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Empty order ID received.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-		}
-
-		$cart_id = isset( $data['cart_id'] ) ? sanitize_text_field( $data['cart_id'] ) : '';
-		$on_page_button_id = isset( $data['on_page_button_id'] ) ? sanitize_text_field( $data['on_page_button_id'] ) : '';
-		PayPal_Utils::log( 'Received request - pp_capture_order. PayPal Order ID: ' . $order_id . ', Cart ID: '.$cart_id.', On Page Button ID: ' . $on_page_button_id, true );
-
-		// Check nonce.
-		if ( ! check_ajax_referer( $on_page_button_id, '_wpnonce', false ) ) {
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Nonce check failed. The page was most likely cached. Please reload the page and try again.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-			exit;
-		}
+            wp_send_json_error(array('message' => 'PayPal Order ID is required'));
+        }
 
 		//Set the additional args for the API call.
 		$additional_args = array();
@@ -256,57 +181,39 @@ class PayPal_Button_Ajax_Handler {
 		// Capture the order using the PayPal API.
 		// https://developer.paypal.com/docs/api/orders/v2/#orders_capture
 		$api_injector = new PayPal_Request_API_Injector();
-		$response = $api_injector->capture_paypal_order( $order_id, $additional_args );
+		$response = $api_injector->capture_paypal_order( $paypal_order_id, $additional_args );
 
 		//We requested the response body to be returned, so we need to JSON decode it.
 		if($response !== false){
 			$txn_data = json_decode( $response, true );//JSON decode the response body that we received.
 		} else {
 			//Failed to capture the order.
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Failed to capture the order. Enable the debug logging feature to get more details.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-			exit;
+			wp_send_json_error(array('message' => 'Failed to capture PayPal payment'));
 		}
 
-		//--
-		// PayPal_Utils::log_array($data, true);//Debugging purpose.
-		// PayPal_Utils::log_array($txn_data, true);//Debugging purpose.
-		//--
+		$data = array(
+			'order_id' => $paypal_order_id,
+		);
 
-		//Create the IPN data array from the transaction data.
-		//Need to include the following values in the $data array.
-		$data['custom_field'] = get_transient( $cart_id );//We saved the custom field in the transient using cart ID.
-		
 		$ipn_data = PayPal_Utility_IPN_Related::create_ipn_data_array_from_capture_order_txn_data( $data, $txn_data );
 		$paypal_capture_id = isset( $ipn_data['txn_id'] ) ? $ipn_data['txn_id'] : '';
 		PayPal_Utils::log( 'PayPal Capture ID (Transaction ID): ' . $paypal_capture_id, true );
 		PayPal_Utils::log_array( $ipn_data, true );//Debugging purpose.
-		
+
 		/* Since this capture is done from server side, the validation is not required but we are doing it anyway. */
 		//Validate the buy now txn data before using it.
 		$validation_response = PayPal_Utility_IPN_Related::validate_buy_now_checkout_txn_data( $data, $txn_data );
-		if( $validation_response !== true ){
-			//Debug logging will reveal more details.
-			wp_send_json(
-				array(
-					'success' => false,
-					'error_detail'  => $validation_response,/* it contains the error message */
-				)
-			);
-			exit;
+		if( empty($validation_response) ){
+			wp_send_json_error(array('message' => $validation_response));
 		}
-		
-		//Process the IPN data array
-		PayPal_Utils::log( 'Validation passed. Going to create/update record and save transaction data.', true );
-		
+
 		/**
 		 * TODO: This is a plugin specific method.
 		 */
-		PayPal_Utility_IPN_Related::complete_post_payment_processing( $data, $txn_data, $ipn_data );
+		$wc_order = PayPal_Utility_IPN_Related::complete_post_payment_processing( $data, $txn_data, $ipn_data );
+		if (is_wp_error($wc_order)) {
+			 wp_send_json_error(array('message' => $wc_order->get_error_message()));
+		}
 
 		/**
 		 * Trigger the IPN processed action hook (so other plugins can can listen for this event).
@@ -315,9 +222,9 @@ class PayPal_Button_Ajax_Handler {
 		do_action( PayPal_Utils::hook('paypal_checkout_ipn_processed'), $ipn_data );
 		do_action( PayPal_Utils::hook('payment_ipn_processed'), $ipn_data );
 
-		//Everything is processed successfully, send the success response.
-		wp_send_json( array( 'success' => true, 'order_id' => $order_id, 'capture_id' => $paypal_capture_id, 'txn_data' => $txn_data ) );
-		exit;
+        wp_send_json_success(array(
+            'redirect' => $wc_order->get_checkout_order_received_url()
+        ));
 	}
 
 	/**

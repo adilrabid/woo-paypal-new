@@ -10,31 +10,53 @@ function woo_pp_pro_render_ppcp_btn(render_to) {
 
     if (btn_container && typeof paypal !== 'undefined') {
         paypal.Buttons({
-            createOrder: function (data, actions) {
-                return jQuery.post(wc_paypal_checkout_params.ajax_url, {
-                    action: "paypal_checkout_create_order",
-                    nonce: wc_paypal_checkout_params.nonce
-                }).then(function (response) {
-                    if (response.success) {
-                        return response.data.order_id;
+            createOrder: async (data, actions) => {
+
+                const formData = new FormData();
+                formData.append('action', wc_paypal_checkout_params.create_order_ajax_action);
+                formData.append('nonce', wc_paypal_checkout_params.nonce);
+
+                try {
+                    const response = await fetch( wc_paypal_checkout_params.ajax_url, {
+                        method: "post",
+                        body: formData
+                    });
+    
+                    const response_data = await response.json();
+                    
+                    if (response_data.success) {
+                        return response_data.data.order_id;
                     } else {
-                        throw new Error(response.data.message || 'Order creation failed');
+                        throw new Error(response_data.data.message || 'Order creation failed');
                     }
-                });
+                } catch (error) {
+                    console.error(error);
+                    alert(error.message);
+                }
             },
-            onApprove: function (data, actions) {
-                return jQuery.post(wc_paypal_checkout_params.ajax_url, {
-                    action: "paypal_checkout_capture_order",
-                    paypal_order_id: data.orderID,
-                    wc_order_id: data.orderID,
-                    nonce: wc_paypal_checkout_params.nonce
-                }).then(function (response) {
-                    if (response.success) {
-                        window.location.href = response.data.redirect;
+            onApprove: async (data, actions) => {
+                const formData = new FormData();
+                formData.append('action', wc_paypal_checkout_params.capture_order_ajax_action);
+                formData.append('paypal_order_id', data.orderID);
+                formData.append('wc_order_id', data.orderID);
+                formData.append('nonce', wc_paypal_checkout_params.nonce);
+
+                try {
+                    const response = await fetch(wc_paypal_checkout_params.ajax_url, {
+                        method: 'post',
+                        body: formData,
+                    });
+                    const response_data = await response.json();
+                    
+                    if (response_data.success) {
+                        window.location.href = response_data.data.redirect;
                     } else {
-                        alert("Payment failed: " + (response.data.message || 'Unknown error'));
+                       alert("Payment failed: " + (response_data.data.message || 'Unknown error'));
                     }
-                });
+                } catch (error) {
+                    console.error(error);
+                    alert(error.message);
+                }
             },
             onError: function (err) {
                 console.error('PayPal Error:', err);
