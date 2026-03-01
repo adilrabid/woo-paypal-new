@@ -20,7 +20,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 
     public function __construct() {
         $this->id                 = 'paypal_checkout';
-        $this->icon               = apply_filters('woocommerce_paypal_checkout_icon', 'https://www.paypalobjects.com/webstatic/icon/pp32.png');
+        $this->icon               = apply_filters('woocommerce_paypal_checkout_icon', WC_PP_PRO_ADDON_URL . '/assets/img/pp-ppcp.svg');
         $this->has_fields         = true;
         $this->method_title       = __('PayPal Checkout', 'woocommerce-paypal-pro-payment-gateway');
         $this->method_description = __('Accept payments via PayPal Checkout with smart payment buttons.', 'woocommerce-paypal-pro-payment-gateway');
@@ -43,6 +43,16 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 
         // Initialize hooks after WordPress is loaded
         add_action('init', array($this, 'init_hooks'), 20);
+    }
+
+    public function get_icon() {
+        // If we are in admin, show the icon
+        if ( is_admin() ) {
+            return $this->icon;
+        }
+
+        // Otherwise (frontend checkout shortcode), hide it
+        return '<img src="'.$this->icon.'" style="height: 24px">';
     }
 
     /**

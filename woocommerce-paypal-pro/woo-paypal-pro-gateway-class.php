@@ -28,7 +28,7 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 		$this->id		 = 'paypalpro'; //ID needs to be ALL lowercase or it doens't work
 		$this->GATEWAYNAME	 = 'PayPal-Pro';
 		$this->method_title	 = 'PayPal-Pro';
-		$this->icon		 = apply_filters('wcpprog_checkout_icon', plugins_url('images/credit-cards.png', __FILE__));
+		$this->icon		 = apply_filters('wcpprog_checkout_icon', WC_PP_PRO_ADDON_URL . '/assets/img/pp-pro.svg');
 		$this->has_fields	 = true;
 
 		$this->init_form_fields();
@@ -51,8 +51,18 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 		add_action('woocommerce_update_options_payment_gateways_' . $this->id, array(&$this, 'process_admin_options'));
 	}
 
+	public function get_icon() {
+        // If we are in admin, show the icon
+        if ( is_admin() ) {
+            return $this->icon;
+        }
+
+        // Otherwise (frontend checkout shortcode), hide it
+        return '<img src="'.$this->icon.'" style="height: 24px">';
+    }
+
 	public function admin_options() {
-?>
+	?>
 		<h3><?php _e('PayPal Pro', 'woocommerce-paypal-pro-payment-gateway'); ?></h3>
 		<p><?php _e('Allows Credit Card Payments via the PayPal Pro gateway.', 'woocommerce-paypal-pro-payment-gateway'); ?></p>
 
