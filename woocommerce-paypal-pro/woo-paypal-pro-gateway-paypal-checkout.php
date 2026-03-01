@@ -46,12 +46,10 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     }
 
     public function get_icon() {
-        // If we are in admin, show the icon
         if ( is_admin() ) {
             return $this->icon;
         }
 
-        // Otherwise (frontend checkout shortcode), hide it
         return '<img src="'.$this->icon.'" style="height: 24px">';
     }
 
