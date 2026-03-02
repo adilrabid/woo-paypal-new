@@ -36,7 +36,7 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 
 		$this->description	 = '';
 		//This description is displayed in the payment method settings menu.
-		$this->method_description = 'Accept onsite payments using debit and credit cards through the PayPal Pro gateway.';
+		$this->method_description = 'Accept on-site payments using debit and credit cards through the PayPal Pro gateway.';
 		$this->usesandboxapi	 = isset($this->settings['securitycodehint']) ? (strcmp($this->settings['debug'], 'yes') == 0) : false;
 		$this->securitycodehint	 = isset($this->settings['securitycodehint']) ? (strcmp($this->settings['securitycodehint'], 'yes') == 0) : false;
 		//If the field is populated, it will grab the value from there and will not be translated.  If it is empty, it will use the default and translate that value
