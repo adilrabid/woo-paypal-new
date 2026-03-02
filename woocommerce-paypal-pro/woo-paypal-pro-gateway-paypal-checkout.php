@@ -50,7 +50,8 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             return $this->icon;
         }
 
-        return '<img src="'.$this->icon.'" style="height: 24px">';
+        // return '<img src="'.$this->icon.'" style="height: 24px">';
+        return ''; // Don't show icon in front end.
     }
 
     /**
