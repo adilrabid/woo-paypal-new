@@ -56,11 +56,11 @@ class WC_PP_PRO_Gateway_Blocks_Support_PPCP extends AbstractPaymentMethodType {
 
 	public function get_ppcp_icons() {
 		return array(
-			array(
-				"id" => "wcpprog-wc-payment-method-ppcp",
-				"alt" => "PayPal PPCP Icon",
-				"src" => WC_PP_PRO_ADDON_URL . '/assets/img/pp-ppcp.svg',
-			),
+			// array(
+			// 	"id" => "wcpprog-wc-payment-method-ppcp",
+			// 	"alt" => "PayPal PPCP Icon",
+			// 	"src" => WC_PP_PRO_ADDON_URL . '/assets/img/pp-ppcp.svg',
+			// ),
 		);
 	}
 }

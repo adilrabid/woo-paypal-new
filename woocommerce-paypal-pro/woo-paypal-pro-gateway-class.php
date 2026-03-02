@@ -56,7 +56,8 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
             return $this->icon;
         }
 
-        return '<img src="'.$this->icon.'" style="height: 24px">';
+        // return '<img src="'.$this->icon.'" style="height: 24px">';
+		return ''; // Don't show icon in front end.
     }
 
 	public function admin_options() {

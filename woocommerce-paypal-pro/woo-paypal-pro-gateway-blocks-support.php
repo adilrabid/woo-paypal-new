@@ -87,11 +87,11 @@ class WC_PP_PRO_Gateway_Blocks_Support extends AbstractPaymentMethodType {
 			// 	"src" => plugins_url('images/cards/amex.png', __FILE__),
 			// ),
 			
-			array(
-				"id" => "wcpprog-wc-payment-method-Amex",
-				"alt" => "PayPal Pro American Express Card Icon",
-				"src" => WC_PP_PRO_ADDON_URL . '/assets/img/pp-pro.svg',
-			),
+			// array(
+			// 	"id" => "wcpprog-wc-payment-method-Amex",
+			// 	"alt" => "PayPal Pro American Express Card Icon",
+			// 	"src" => WC_PP_PRO_ADDON_URL . '/assets/img/pp-pro.svg',
+			// ),
 		);
 	}
 }
