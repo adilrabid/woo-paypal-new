@@ -48,7 +48,7 @@ class WC_PP_PRO_Gateway_Blocks_Support_PPCP extends AbstractPaymentMethodType {
 			'title'                         => $this->get_setting('title'),
 			'description'                   => $this->get_setting('description'),
 			'securitycodehint'              => $this->get_setting('securitycodehint') == 'yes',
-			'icon'                          => apply_filters('woocommerce_paypal_checkout_icon', 'https://www.paypalobjects.com/webstatic/icon/pp32.png'),
+			'icon'                          => apply_filters('woocommerce_paypal_checkout_icon', WC_PP_PRO_ADDON_URL . '/assets/img/pp-ppcp.svg'),
 			'ppcpIcons'                     => $this->get_ppcp_icons(),
 			'supports'                      => array('products', 'pay_button'),
 		);
@@ -59,7 +59,7 @@ class WC_PP_PRO_Gateway_Blocks_Support_PPCP extends AbstractPaymentMethodType {
 			array(
 				"id" => "wcpprog-wc-payment-method-ppcp",
 				"alt" => "PayPal PPCP Icon",
-				"src" => 'https://www.paypalobjects.com/webstatic/icon/pp32.png',
+				"src" => WC_PP_PRO_ADDON_URL . '/assets/img/pp-ppcp.svg',
 			),
 		);
 	}
