@@ -52,7 +52,12 @@ class PayPal_Request_API {
 
 	public function set_api_credentials( $client_id, $secret ) {
 		if( empty( $client_id ) || empty( $secret ) ){
-			wp_die( "PayPal API credentials are not set. Missing Client ID or Secret Key. Please set them in the plugin's payment settings page." );
+			$msg = "PayPal API credentials are not set. Missing Client ID or Secret Key. Please set them in the plugin's payment settings page.";
+			if (wp_doing_ajax() ) {
+				throw new \Exception( esc_html( $msg ) );
+			} else {
+				wp_die( esc_html( $msg ) );
+			}
 		}
 		$this->client_id = $client_id;
 		$this->secret = $secret;

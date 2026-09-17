@@ -67,6 +67,7 @@ class PayPal_Button_Ajax_Handler {
             wp_send_json_error(array('message' => 'Failed to create order'));
         }
 
+		/* translators: %s: WooCommerce order number. */
 		$description = sprintf(__('Order %s', 'woocommerce-paypal-pro-payment-gateway'), $wc_order->get_order_number());
 
 		// Create the order using the PayPal API.
@@ -108,6 +109,12 @@ class PayPal_Button_Ajax_Handler {
 
         // Store PayPal order ID in WC order meta
         $wc_order->update_meta_data('_paypal_order_id', $paypal_order_id);
+
+		 $wc_order_attributions = isset($_POST['attributions']) ? map_deep( json_decode(wp_unslash( $_POST['attributions'] ), true), 'sanitize_text_field') : array();
+		 if (!empty($wc_order_attributions)) {
+			 PayPal_Utils::add_wc_order_attribution_fields( $wc_order,  $wc_order_attributions);
+		 }
+
         $wc_order->save();
 
         wp_send_json_success(array('order_id' => $paypal_order_id, 'wc_order_id' => $wc_order->get_id()));
@@ -288,6 +295,7 @@ class PayPal_Button_Ajax_Handler {
 
 		if (is_numeric($ret_product->available_copies)) {
 			if ($ret_product->available_copies < 1) {// No more copies left
+				/* translators: %s: Product name. */
 				$out_of_stock_error_msg = sprintf( __( "%s is out of stock.", "woocommerce-paypal-pro-payment-gateway" ), $ret_product->product_name );
 				wp_send_json(
 					array(

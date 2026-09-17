@@ -1,3 +1,9 @@
+/* Hide order previews on subscription lists only (legacy and HPOS). */
+body.post-type-wcpprog_sub_order .wp-list-table .order-preview,
+body.woocommerce_page_wc-orders--wcpprog_sub_order .wp-list-table .order-preview {
+    display: none;
+}
+
 .wcpprog_gray_box{
     /* background-color: #eee; */
     background-color: lightgray;
@@ -7,4 +13,49 @@
 .wcpprog-paypal-sandbox-account-status,
 .wcpprog-paypal-live-account-status {
     margin-bottom: 10px;
+}
+
+/* For PayPal */
+.wcpprog-paypal-ppcp-live-webhook-status span.dashicons-no,
+.wcpprog-paypal-ppcp-test-webhook-status span.dashicons-no {
+    color:red;
+}
+.wcpprog-paypal-ppcp-live-webhook-status span.dashicons-warning,
+.wcpprog-paypal-ppcp-test-webhook-status span.dashicons-warning {
+    color:sandybrown;
+}
+.wcpprog-paypal-ppcp-live-webhook-status span.dashicons-yes,
+.wcpprog-paypal-ppcp-test-webhook-status span.dashicons-yes {
+    color:green;
+}
+
+/* WooCommerce subscription status badges (legacy and HPOS order lists). */
+.order-status.status-wcpprog-active {
+    background: #c6e1c6;
+    color: #2c4700;
+}
+
+.order-status.status-wcpprog-trial {
+    background: #e5e5ff;
+    color: #3c3c83;
+}
+
+.order-status.status-wcpprog-on-hold {
+    background: #f8dda7;
+    color: #573b00;
+}
+
+.order-status.status-wcpprog-pending-cancel {
+    background: #f5d0a9;
+    color: #663c00;
+}
+
+.order-status.status-wcpprog-cancelled {
+    background: #eba3a3;
+    color: #570000;
+}
+
+.order-status.status-wcpprog-expired {
+    background: #e5e5e5;
+    color: #454545;
 }

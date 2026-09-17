@@ -105,7 +105,6 @@ class PayPal_Utils{
      */
     public static function get_seller_merchant_id_by_environment_mode( $environment_mode = 'production' ) {
         $settings = PayPal_PPCP_Config::get_instance();
-        $seller_merchant_id = '';
 
         if ($environment_mode == 'production') {
             $seller_merchant_id = $settings->get_value('paypal-live-seller-merchant-id');
@@ -117,7 +116,6 @@ class PayPal_Utils{
 
     public static function get_seller_client_id_by_environment_mode( $environment_mode = 'production' ) {
         $settings = PayPal_PPCP_Config::get_instance();
-        $seller_client_id = '';
 
         if ($environment_mode == 'production') {
             $seller_client_id = $settings->get_value('paypal-live-client-id');
@@ -151,92 +149,93 @@ class PayPal_Utils{
 		return $plan_details_changed;
     }
 
-    /**
-     * Force creates a new billing plan for the product (the paypal account connection or the mode may have changed)
-     */
-    public static function create_billing_plan_fresh_new( $product_id ){
-        //Reset any plan ID that may be saved for this button. 
-        //We need to create completely new plan (using the current PayPal account and mode)
-        estore_save_product_meta($product_id, 'pp_subscription_plan_id', '');
-        estore_save_product_meta($product_id, 'pp_subscription_plan_mode', '');
-        $ret = array();
-        $ret = self::create_billing_plan_for_product( $product_id );
-        return $ret;
+    /** Resolve the current billing terms at checkout; never modify an existing PayPal plan. */
+    public static function create_billing_plan_fresh_new( $product_id ) {
+        return self::create_billing_plan_for_product( $product_id, true );
     }
 
-    /**
-     * Checks if a billling plan exists for the given button ID. If not, it creates a new billing plan in PayPal. 
-     * Returns the billing plan ID in an array.
-     * @param mixed $button_id
-     * @return array
-     */
-    public static function create_billing_plan_for_product( $product_id ){
-        $output = "";
-		$ret = array();
-        $plan_id = estore_get_product_meta($product_id, 'pp_subscription_plan_id');
-        if ( empty ( $plan_id )){
-            //Billing plan doesn't exist. Need to create a new billing plan in PayPal.
-			//Product params
-			$estore_product_row = eStore_get_product_row_by_id( $product_id );
-			$product_name = $estore_product_row->name;
-			$product_params = array(
-				'name' => $product_name,
-				'type' => 'DIGITAL',
-			);
-			//Subscription args
-			$payment_currency = get_option('cart_payment_currency');
-            $subsc_args = array(
-				'currency' => $payment_currency,
-				'sub_trial_price' => $estore_product_row->a1,            
-				'sub_trial_period' => $estore_product_row->p1,
-				'sub_trial_period_type' => $estore_product_row->t1,
-				'sub_recur_price' => $estore_product_row->a3,            
-				'sub_recur_period' => $estore_product_row->p3,
-				'sub_recur_period_type' => $estore_product_row->t3,
-				'sub_recur_count' => $estore_product_row->srt,
-				'sub_recur_reattemp' => $estore_product_row->sra,
-        	);
-
-            //Setup the PayPal API Injector class. This class is used to do certain premade API queries.
-            $pp_api_injector = new PayPal_Request_API_Injector();
-			$paypal_req_api = $pp_api_injector->get_paypal_req_api();
-            $paypal_mode = $paypal_req_api->get_api_environment_mode();
-            // Debugging
-            // echo '<pre>';
-            // var_dump($paypal_req_api);
-            // echo '</pre>';
-
-            $plan_id = $pp_api_injector->create_product_and_billing_plan($product_params, $subsc_args);
-            if ( $plan_id !== false ) {
-                //Plan created successfully. Save the plan ID for future reference.
-                estore_save_product_meta($product_id, 'pp_subscription_plan_id', $plan_id);
-                estore_save_product_meta($product_id, 'pp_subscription_plan_mode', $paypal_mode);
-
-                $ret['success'] = true;
-                $ret['plan_id'] = $plan_id;
-				$ret['output'] = $output;
-				return $ret;
-            } else {
-                //Plan creation failed. Show an error message.
-                $last_error = $paypal_req_api->get_last_error();
-                $error_message = isset($last_error['error_message']) ? $last_error['error_message'] : '';
-
-                $output .= '<div class="paypal-ppcp-api-error-msg">';
-                $output .= '<p>Error! Failed to create a subscription billing plan in your PayPal account. The following error message was returned from the PayPal API.</p>';
-                $output .= '<p>Error Message: ' . esc_attr($error_message) . '</p>';
-                $output .= '</div>';
-
-                $ret['success'] = false;
-                $ret['plan_id'] = '';
-                $ret['error_message'] = $error_message;
-                $ret['output'] = $output;
-                return $ret;
-            }
+    public static function create_billing_plan_for_product( $product_id, $force_new = false ) {
+        $error = array( 'success' => false, 'error_message' => __( 'Unable to prepare the subscription plan. Please try again.', 'woocommerce-paypal-pro-payment-gateway' ) );
+        // Atomic acquisition prevents simultaneous checkouts from creating duplicate plans.
+        $lock = 'wcpprog_plan_lock_' . absint( $product_id );
+        if ( ! add_option( $lock, time(), '', false ) ) {
+            return $error;
         }
-        $ret['success'] = true;
-        $ret['plan_id'] = $plan_id;
-        $ret['output'] = $output;
-		return $ret;
+
+        $lock_held = true;
+        register_shutdown_function( static function () use ( $lock, &$lock_held ) {
+            if ( $lock_held ) {
+                delete_option( $lock );
+            }
+        } );
+
+        try {
+            $product = wc_get_product( $product_id );
+            if ( ! $product || $product->get_type() !== \WCPPROG_Subscription_Related::SUBSCRIPTION_PRODUCT_TYPE ) {
+                return $error;
+            }
+            $api = new PayPal_Request_API_Injector();
+            $request = $api->get_paypal_req_api();
+            $mode = $request->get_api_environment_mode();
+            $keys = self::get_api_keys_by_environment_mode( $mode );
+            // Use recurring prices, not the trial-adjusted cart price.
+            $args = array(
+                'currency' => get_woocommerce_currency(),
+                'sub_recur_price' => wc_format_decimal( $product->is_on_sale() ? $product->get_sale_price() : $product->get_regular_price(), 2 ),
+                'sub_recur_period' => (int) $product->get_subscription_recurring_billing_interval(),
+                'sub_recur_period_type' => $product->get_subscription_recurring_billing_interval_type(),
+                'sub_recur_count' => (int) $product->get_subscription_recurring_billing_count(),
+                'sub_recur_reattemp' => 'yes' === $product->get_subscription_reattempt_on_failure(),
+                'sub_trial_period' => (int) $product->get_subscription_trial_period(),
+                'sub_trial_period_type' => $product->get_subscription_trial_period_type(),
+                'sub_trial_price' => wc_format_decimal( $product->get_subscription_trial_price(), 2 ),
+            );
+            if ( ! $args['sub_trial_period'] ) {
+                $args['sub_trial_period_type'] = '';
+                $args['sub_trial_price'] = '0.00';
+            }
+            $fingerprint = hash( 'sha256', wp_json_encode( array(
+                'version' => 1,
+                'mode' => $mode,
+                'client_id' => $keys['client_id'],
+                'merchant' => self::get_seller_merchant_id_by_environment_mode( $mode ),
+                'terms' => $args,
+            ) ) );
+            $cache = $product->get_meta( '_subscription_ppcp_plan_cache' );
+            $cache = is_array( $cache ) ? $cache : array();
+            $plan_id = $force_new ? '' : ( $cache[ $fingerprint ] ?? '' );
+            if ( $plan_id ) {
+                $details = $api->get_paypal_billing_plan_details( $plan_id );
+                // A failed lookup may be a temporary API error; don't create duplicates.
+                if ( false === $details ) {
+                    return $error;
+                }
+                if ( 'ACTIVE' !== ( $details->status ?? '' ) ) {
+                    $plan_id = '';
+                }
+            }
+            if ( ! $plan_id ) {
+                $plan_id = $api->create_product_and_billing_plan(
+                    array( 'name' => $product->get_name(), 'type' => 'DIGITAL' ),
+                    $args
+                );
+                if ( ! is_string( $plan_id ) || '' === $plan_id ) {
+                    return $error;
+                }
+            }
+            // Persist only after a usable plan is available. Legacy IDs without a
+            // fingerprint are intentionally not trusted to represent today's terms.
+            $cache[ $fingerprint ] = $plan_id;
+            $product->update_meta_data( '_subscription_ppcp_plan_cache', $cache );
+            $product->update_meta_data( '_subscription_ppcp_plan_id', $plan_id );
+            $product->update_meta_data( '_subscription_ppcp_plan_fingerprint', $fingerprint );
+            $product->update_meta_data( '_subscription_ppcp_plan_mode', $mode );
+            $product->save_meta_data();
+            return array( 'success' => true, 'plan_id' => $plan_id, 'output' => '' );
+        } finally {
+            delete_option( $lock );
+            $lock_held = false;
+        }
     }
 
 	/*
@@ -325,7 +324,7 @@ class PayPal_Utils{
     }
 
     public static function check_billing_plan_exists( $plan_id ){
-        //Setup the PayPal API Injector class. This class is used to do certain premade API queries.
+        // Set up the PayPal API Injector class. This class is used to do certain premade API queries.
         $pp_api_injector = new PayPal_Request_API_Injector();
 
         //Use the "Show plan details" API call to verify that the plan exists for the given account and mode.
@@ -791,4 +790,19 @@ class PayPal_Utils{
 		return $purchase_unit_items_list;
 	}
 
+	public static function add_wc_order_attribution_fields( &$order, $attributions ) {
+		if ( empty( $attributions ) || ! is_array( $attributions ) ) {
+			return;
+		}
+
+		foreach ( $attributions as $key => $value ) {
+			$meta_key = sanitize_key( $key );
+			$meta_value = sanitize_text_field( $value );
+			if ( ! in_array( $meta_key, \WC_PP_PRO_Utility::allowed_wc_order_attribution_fields(), true ) || $meta_value === '(none)' ) {
+				continue;
+			}
+
+			$order->update_meta_data( '_wc_order_attribution_' . $meta_key, sanitize_text_field( $meta_value ) );
+		}
+	}
 }
