@@ -13,6 +13,7 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
     const processing = useRef(false);
     processing.current = disabled || waitingForProcessing;
     const checkoutType = getPayPalPPCPSettings('checkoutType', 'capture');
+    const whMissingNotice = getPayPalPPCPSettings( 'webhook_missing_notice', '');
 
     useEffect(() => {
         if (sdkActions.current) {
@@ -174,6 +175,10 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
 
     if (isEditor) {
         return <div>{'PayPal Checkout button'}</div>;
+    }
+
+    if (whMissingNotice.trim().length){
+        return <div style={{color: '#cc0000', width: '100%'}}>{whMissingNotice}</div>
     }
 
     return <div ref={container} style={{width: '100%'}}/>;

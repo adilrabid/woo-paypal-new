@@ -80,6 +80,7 @@ class WC_PP_PRO_Gateway_Blocks_Support_PPCP extends AbstractPaymentMethodType {
 				'createSubscriptionAction'   => PayPal_Utils::auto_prefix( 'sub_pp_create_subscription' ),
 				'approveSubscriptionAction'  => PayPal_Utils::auto_prefix( 'sub_onapprove_process_subscription' ),
 			),
+			'webhook_missing_notice' => $this->gateway->webhook_missing_notice(),
 		);
 	}
 

@@ -276,11 +276,23 @@ function woo_pp_pro_render_ppcp_btn(render_to) {
     }
 
     const buttonType = wc_paypal_checkout_params.btn_type || 'buy_now';
-    const button = buttonType === 'subscription'
-        ? new Woo_PP_Pro_PPCP_Subscription_Btn()
-        : new Woo_PP_Pro_PPCP_Buy_Now_Btn();
+    let button;
+    if (buttonType === 'subscription'){
+        if (wc_paypal_checkout_params.webhook_missing_notice.trim().length){
+            const notice = document.createElement('div');
+            notice.style.color = '#cc0000';
+            notice.textContent = wc_paypal_checkout_params.webhook_missing_notice.trim();
+            document.querySelector(render_to).appendChild(notice);
 
-    button.container(render_to).render();
+            return;
+        }
+
+        button = new Woo_PP_Pro_PPCP_Subscription_Btn();
+    } else {
+        button = new Woo_PP_Pro_PPCP_Buy_Now_Btn();
+    }
+
+    button?.container(render_to).render();
 }
 
 // The script is enqueued after the PayPal SDK. Dispatch only after the button

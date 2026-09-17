@@ -469,10 +469,25 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'capture_order_ajax_action' => PayPal_Utils::auto_prefix('pp_capture_order'),
             'create_sub_order_ajax_action' => PayPal_Utils::auto_prefix('sub_pp_create_subscription'),
             'onapprove_sub_order_ajax_action' => PayPal_Utils::auto_prefix('sub_onapprove_process_subscription'),
+            'webhook_missing_notice' => esc_js($this->webhook_missing_notice()),
             'btn_type'    => esc_js($paypal_button_type),
             'currency'    => get_woocommerce_currency(),
             'total'       => WC()->cart ? WC()->cart->get_total('raw') : 0,
         ));
+    }
+
+    public function webhook_missing_notice() {
+        if (! $this->is_subscription_checkout()){
+            return '';
+        }
+
+        $mode = $this->sandbox ? 'sandbox' : 'live';
+        $wh_id = PayPal_Utils::get_option( 'paypal_webhook_id_' . $mode );
+        if (empty($wh_id)) {
+            return esc_html__('Webhooks are not configured!', 'woocommerce-paypal-pro-payment-gateway');
+        }
+
+        return '';
     }
 
     /**
