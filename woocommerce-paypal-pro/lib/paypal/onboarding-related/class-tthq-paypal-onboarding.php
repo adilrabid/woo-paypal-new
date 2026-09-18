@@ -114,7 +114,7 @@ class PayPal_PPCP_Onboarding {
 				formData.append('_wpnonce', '<?php echo esc_js($wp_nonce) ?>');
 
 				//Post the AJAX request to the server.
-				fetch('<?php echo $ajax_post_url; ?>', {
+				fetch('<?php echo esc_js( $ajax_post_url ); ?>', {
 					method: 'POST',
 					body: formData,
 				}).then(response => response.json())
@@ -137,11 +137,11 @@ class PayPal_PPCP_Onboarding {
 		</script>
 		<a class="button button-primary direct" target="_blank"
 			data-paypal-onboard-complete="wcpprog_ppcp_onboarded_callback_sandbox"
-			href="<?php echo ($sandbox_singup_link); ?>"
+			href="<?php echo esc_url( $sandbox_singup_link ); ?>"
 			data-paypal-button="true"><?php esc_html_e('Get PayPal Sandbox Credentials', 'woocommerce-paypal-pro-payment-gateway')?>
 		</a>
-		<script id="paypal-js-sandbox" src="https://www.sandbox.paypal.com/webapps/merchantboarding/js/lib/lightbox/partner.js"></script>
 		<?php
+        wp_enqueue_script( PayPal_Utils::auto_prefix('paypal-js-sandbox'), 'https://www.sandbox.paypal.com/webapps/merchantboarding/js/lib/lightbox/partner.js' );
 	}
 
 	public function output_sandbox_ac_disconnect_link(){		
@@ -154,7 +154,7 @@ class PayPal_PPCP_Onboarding {
 			data-ac-disconnect-action="<?php echo esc_attr(PayPal_Utils::auto_prefix('ppcp_disconnect_sandbox')) ?>"
 			data-ac-disconnect-nonce="<?php echo esc_attr(wp_create_nonce(PayPal_Utils::auto_prefix('ac_disconnect_nonce_sandbox'))) ?>"
 		>
-			<?php _e('Disconnect Sandbox Account', 'woocommerce-paypal-pro-payment-gateway')?>
+			<?php esc_html_e('Disconnect Sandbox Account', 'woocommerce-paypal-pro-payment-gateway')?>
 		</a>
 
 		<script>
@@ -174,7 +174,7 @@ class PayPal_PPCP_Onboarding {
 					formData.append('action', action);
 					formData.append('_wpnonce', nonce);
 
-					fetch('<?php echo $ajax_post_url; ?>', {
+					fetch('<?php echo esc_js( $ajax_post_url ); ?>', {
 						method: 'POST',
 						body: formData,
 					}).then(response => response.json())
@@ -222,10 +222,10 @@ class PayPal_PPCP_Onboarding {
 				const formData = new FormData();
 				formData.append('action', 'wcpprog_handle_onboarded_callback_data');
 				formData.append('data', data);
-				formData.append('_wpnonce', '<?php echo $wp_nonce; ?>');
+				formData.append('_wpnonce', '<?php echo esc_js( $wp_nonce ); ?>');
 
 				//Post the AJAX request to the server.
-				fetch('<?php echo $ajax_post_url; ?>', {
+				fetch('<?php echo esc_js( $ajax_post_url ); ?>', {
 					method: 'POST',
 					body: formData,
 				}).then(response => response.json())
@@ -248,11 +248,11 @@ class PayPal_PPCP_Onboarding {
 		</script>
 		<a class="button button-primary direct" target="_blank"
 			data-paypal-onboard-complete="wcpprog_ppcp_onboarded_callback_production"
-			href="<?php echo ($singup_link); ?>"
+			href="<?php echo esc_url( $singup_link ); ?>"
 			data-paypal-button="true"><?php esc_html_e('Get PayPal Live Credentials', 'woocommerce-paypal-pro-payment-gateway') ?>
 		</a>
-		<script id="paypal-js" src="https://www.paypal.com/webapps/merchantboarding/js/lib/lightbox/partner.js"></script>
 		<?php
+        wp_enqueue_script( PayPal_Utils::auto_prefix('paypal-js'), 'https://www.paypal.com/webapps/merchantboarding/js/lib/lightbox/partner.js' );
 	}
 
 	public function output_production_ac_disconnect_link(){
@@ -265,7 +265,7 @@ class PayPal_PPCP_Onboarding {
 			data-ac-disconnect-action="<?php echo esc_attr(PayPal_Utils::auto_prefix('ppcp_disconnect_production')) ?>"
 			data-ac-disconnect-nonce="<?php echo esc_attr(wp_create_nonce(PayPal_Utils::auto_prefix('ac_disconnect_nonce_production'))) ?>"
 		>
-			<?php _e('Disconnect Sandbox Account', 'woocommerce-paypal-pro-payment-gateway')?>
+			<?php esc_html_e('Disconnect Sandbox Account', 'woocommerce-paypal-pro-payment-gateway')?>
 		</a>
 
 		<script>
@@ -285,7 +285,7 @@ class PayPal_PPCP_Onboarding {
 					formData.append('action', action);
 					formData.append('_wpnonce', nonce);
 
-					fetch('<?php echo $ajax_post_url; ?>', {
+					fetch('<?php echo esc_js( $ajax_post_url ); ?>', {
 						method: 'POST',
 						body: formData,
 					}).then(response => response.json())
@@ -339,7 +339,7 @@ class PayPal_PPCP_Onboarding {
 						formData.append('action', action);
 						formData.append('_wpnonce', nonce);
 
-						fetch('<?php echo $ajax_post_url; ?>', {
+						fetch('<?php echo esc_js( $ajax_post_url ); ?>', {
 							method: 'POST',
 							body: formData,
 						}).then(response => response.json())

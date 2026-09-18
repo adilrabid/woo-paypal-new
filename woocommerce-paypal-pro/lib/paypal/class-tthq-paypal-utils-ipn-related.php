@@ -149,7 +149,7 @@ class PayPal_Utility_IPN_Related {
 	 * TODO: This is a plugin specific method.
 	 */
 	public static function complete_post_payment_processing( $data, $txn_data, $ipn_data){
-		$paypal_order_id = isset($data['order_id']) ? $data['order_id'] : '';
+		$paypal_order_id = isset($data['order_id']) ? sanitize_text_field($data['order_id']) : '';
 
 		// Find the WooCommerce order by PayPal order ID
 		$orders = wc_get_orders(array(
@@ -189,6 +189,7 @@ class PayPal_Utility_IPN_Related {
 
 		// Mark order as paid and add note
         $wc_order->payment_complete($paypal_order_id);
+        /* translators: %s: PayPal order ID. */
         $wc_order->add_order_note(sprintf(__('PayPal payment completed. PayPal Order ID: %s', 'woocommerce-paypal-pro-payment-gateway'), $paypal_order_id));
 
         // Empty cart
@@ -197,22 +198,134 @@ class PayPal_Utility_IPN_Related {
 		return $wc_order;
 	}
 
-	public static function convert_estore_cart_items_to_ipn_cart_items($estore_cart_items, $ipn_data = array()) {
-		$cart_items = [];
+	/**
+	 * TODO: This is a plugin specific method.
+	 */
+	public static function complete_post_subscription_payment_processing( $data, $txn_data, $ipn_data){
+		$paypal_subscription_id = isset($data['subscriptionID']) ? sanitize_text_field($data['subscriptionID']) : '';
+		$paypal_order_id = isset($data['orderID']) ? sanitize_text_field($data['orderID']) : '';
 
-		$currency = isset($ipn_data['mc_currency']) ? $ipn_data['mc_currency'] : 'USD';
-		
-		foreach ($estore_cart_items as $item) {
-			$cart_items[] = [
-				'item_number' => $item['item_number'] ?? '',
-				'item_name' => $item['name'] ?? '',
-				'quantity' => $item['quantity'] ?? 0,
-				'mc_gross' => ($item['price'] ?? 0) * ($item['quantity'] ?? 1),
-				'mc_currency' => $currency,
-			];
+		// Find the WooCommerce order by PayPal order ID
+		$orders = wc_get_orders(array(
+			'meta_key' => '_paypal_subscription_id',
+			'type' => 'shop_order',
+			'orderby' => 'ID',
+			'order' => 'ASC',
+			'meta_value' => $paypal_subscription_id,
+			'limit' => 1,
+		));
+
+		$wc_order = ! empty($orders) ? $orders[0] : false;
+
+		if ( empty($wc_order) ) {
+			return new \WP_Error('order_not_found', 'WooCommerce order not found');
 		}
-		
-		return $cart_items;
+
+		$wc_order->update_meta_data('_paypal_order_id', $paypal_order_id);
+
+		$wc_order->save();
+
+		// Approval is not a payment receipt. The sale webhook supplies the sale ID.
+		if ( (float) $wc_order->get_total() <= 0 ) {
+			$wc_order->payment_complete();
+		}
+		/* translators: %s: PayPal subscription ID. */
+		$wc_order->add_order_note(sprintf(__('PayPal subscription completed. PayPal Subscription ID: %s', 'woocommerce-paypal-pro-payment-gateway'), $paypal_subscription_id));
+
+		// Empty cart
+		WC()->cart->empty_cart();
+
+		self::create_subscription_order($wc_order, $data, $txn_data, $ipn_data);
+
+		return $wc_order;
+	}
+
+	/**
+	 * This creates a subscription order under thw woocommerce subscription menu.
+	 *
+	 * NOTE: This is a plugin specific method.
+	 *
+	 * @param $order
+	 *
+	 * @return void
+	 */
+	public static function copy_subscription_line_item( $item ) {
+		// Persisted clones retain their ID and would move the original item.
+		$copy = new \WC_Order_Item_Product();
+		$data = $item->get_data();
+		unset( $data['id'], $data['order_id'], $data['meta_data'] );
+		$copy->set_props( $data );
+		foreach ( $item->get_meta_data() as $meta ) {
+			if ( in_array( $meta->key, array( '_reduced_stock', '_restock_refunded_items' ), true ) ) {
+				continue;
+			}
+			$copy->add_meta_data( $meta->key, $meta->value );
+		}
+		return $copy;
+	}
+
+	public static function create_subscription_order( $order, $data, $txn_data, $ipn_data ) {
+		$order_id = $order->get_id();
+		if ( $order->get_meta( '_wcpprog_subscription_order_id', true ) ) {
+			return;
+		}
+
+		try {
+			foreach ( $order->get_items() as $item ) {
+				$product = $item->get_product();
+
+				if ( ! $product || \WCPPROG_Subscription_Related::SUBSCRIPTION_PRODUCT_TYPE !== $product->get_type() ) {
+					continue;
+				}
+
+				$subscription_order = new \WCPPROG_WC_Subscription_Order();
+
+				$subscription_order->set_customer_id( $order->get_customer_id() );
+				$subscription_order->set_billing_address( $order->get_address( 'billing' ) );
+				$subscription_order->set_shipping_address( $order->get_address( 'shipping' ) );
+
+				// The PayPal subscription has been approved before this order is created.
+				$has_trial = 'yes' === $order->get_meta( '_wcpprog_has_trial', true );
+				$subscription_order->update_meta_data( '_wcpprog_has_trial', $has_trial ? 'yes' : 'no' );
+				$subscription_order->set_status( $has_trial ? 'wcpprog-trial' : 'wcpprog-active' );
+
+				// Copy the line item onto the subscription for reference
+				$subscription_order->add_item( self::copy_subscription_line_item( $item ) );
+
+				$interval = (int) $product->get_meta( '_subscription_recurring_billing_interval', true );
+				$period   = $product->get_meta( '_subscription_recurring_billing_interval_type', true );
+				$sub_plan_id = isset($txn_data['plan_id']) ? sanitize_text_field($txn_data['plan_id']) : '';
+
+				$subscription_order->update_meta_data( '_billing_interval', $interval );
+				$subscription_order->update_meta_data( '_billing_period', $period );
+				$subscription_order->update_meta_data( '_parent_order_id', $order_id );
+				$subscription_order->update_meta_data( '_related_order_ids', array( $order_id ) );
+				$subscription_order->update_meta_data( '_paypal_subscription_id', $order->get_meta( '_paypal_subscription_id', true ) );
+				$subscription_order->update_meta_data( '_paypal_subscription_plan_id', $sub_plan_id );
+
+				if ( $has_trial ) {
+					$trial_length = (int) $product->get_meta( '_subscription_trial_period', true );
+					$trial_period = $product->get_meta( '_subscription_trial_period_type', true );
+					$next_payment = strtotime( "+{$trial_length} {$trial_period}" );
+				} else {
+					$next_payment = strtotime( "+{$interval} {$period}" );
+				}
+
+				$subscription_order->set_next_payment_date( gmdate( 'Y-m-d H:i:s', $next_payment ) );
+				$subscription_order->calculate_totals( false );
+				$subscription_order->save();
+
+				$subscription_order_id = $subscription_order->get_id();
+
+				PayPal_Utils::log('Subscription order created. Subscription order ID: ' . $subscription_order_id );
+
+				// Link back from the parent order too
+				$order->update_meta_data( '_wcpprog_subscription_order_id', $subscription_order_id );
+				$order->save();
+			}
+		} catch (\Exception $e) {
+			PayPal_Utils::log( $e->getMessage(), false );
+		}
 	}
 
 	public static function complete_buy_now_post_payment_processing( $data, $txn_data, $ipn_data){

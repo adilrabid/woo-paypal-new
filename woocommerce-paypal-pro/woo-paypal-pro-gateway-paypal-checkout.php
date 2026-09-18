@@ -6,17 +6,23 @@
  * Adds PayPal Checkout as a separate payment gateway alongside PayPal Pro.
  */
 
+use TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_JS_Button_Embed;
 use TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utils;
 
 if (! defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
+require WC_PP_PRO_ADDON_PATH . '/traits/trait-wcpprog-ppcp-gateway.php';
+
 class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
+
+    use WC_Gateway_PayPal_Checkout_Trait;
 
     private $sandbox;
     private $client_id;
     private $client_secret;
+    public string $pp_js_sdk_script_handler = 'wcpprog-paypal-checkout-sdk';
 
     public function __construct() {
         $this->id                 = 'paypal_checkout';
@@ -34,7 +40,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         $this->title          = $this->get_option('title');
         $this->description    = $this->get_option('description');
         $this->enabled        = $this->get_option('enabled');
-        $this->sandbox        = $this->get_option('sandbox');
+        $this->sandbox        = $this->get_option('sandbox') === 'yes';
         $this->client_id      = $this->sandbox ? $this->get_option('sandbox_client_id') : $this->get_option('live_client_id');
         $this->client_secret  = $this->sandbox ? $this->get_option('sandbox_client_secret') : $this->get_option('live_client_secret');
 
@@ -66,6 +72,10 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 
         // For cart shortcode, we need to use woocommerce hook to render buttons
         add_action('woocommerce_after_cart_totals', array($this, 'render_paypal_button_on_cart_shortcode'), 15);
+
+        if ( wp_doing_ajax() && is_admin() && current_user_can( 'manage_options' ) ) {
+            $this->init_webhooks();
+        }
     }
 
     /**
@@ -78,6 +88,10 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         }
 
         if (! is_cart()) {
+            return;
+        }
+
+        if ( $this->is_subscription_checkout() ) {
             return;
         }
 
@@ -137,7 +151,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 'title'   => __('Sandbox', 'woocommerce-paypal-pro-payment-gateway'),
                 'type'    => 'checkbox',
                 'label'   => __('Enable PayPal sandbox', 'woocommerce-paypal-pro-payment-gateway'),
-                'default' => '',
+                'default' => 'no',
                 'description' => __('PayPal sandbox can be used to test payments.', 'woocommerce-paypal-pro-payment-gateway'),
                 'desc_tip' => true,
                 'subtab' => 'general',
@@ -223,143 +237,38 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
                 'desc_tip'    => true,
                 'subtab'    => 'api_credentials',
             ),
+
+            'live_webhook_status' => array(
+                'title'       => __('Live Webhook Status', 'woocommerce-paypal-pro-payment-gateway'),
+                'type'        => 'webhook_status',
+                'description' => __('TODO: Need to update.', 'woocommerce-paypal-pro-payment-gateway'),
+                'default'     => '',
+                'desc_tip'    => true,
+                'subtab'    => 'webhooks',
+                'custom_attrs' => array(
+                    'mode' => 'live',
+                ),
+            ),
+            'test_webhook_status' => array(
+                'title'       => __('Test Webhook Status', 'woocommerce-paypal-pro-payment-gateway'),
+                'type'        => 'webhook_status',
+                'description' => __('TODO: Need to update.', 'woocommerce-paypal-pro-payment-gateway'),
+                'default'     => '',
+                'desc_tip'    => true,
+                'subtab'    => 'webhooks',
+                'custom_attrs' => array(
+                    'mode' => 'test',
+                ),
+            ),
+            'delete_webhooks' => array(
+                'title'       => __('Delete Webhooks', 'woocommerce-paypal-pro-payment-gateway'),
+                'type'        => 'delete_webhooks',
+                'description' => __('TODO: Need to update.', 'woocommerce-paypal-pro-payment-gateway'),
+                'default'     => '',
+                'desc_tip'    => true,
+                'subtab'    => 'webhooks',
+            ),
         );
-    }
-
-    public function generate_account_conn_btn_html($key, $data) {
-        $field    = $this->plugin_id . $this->id . '_' . $key;
-
-        $defaults = array(
-            'class'             => '',
-            'css'               => '',
-            'custom_attrs' => array(),
-            'desc_tip'          => false,
-            'description'       => '',
-            'title'             => '',
-        );
-
-        $data = wp_parse_args($data, $defaults);
-
-        $connection_type = isset($data['custom_attrs']['connection_type']) ? $data['custom_attrs']['connection_type'] : 'sandbox';
-
-        $is_sandbox_enabled = $this->get_option('sandbox') == 'yes' ? true : false;
-
-        $ppcp_onboarding_instance = \TTHQ\WC_PP_PRO\Lib\PayPal\Onboarding\PayPal_PPCP_Onboarding::get_instance();
-
-        ob_start();
-        ?>
-        <tr valign="top">
-            <th scope="row" class="titledesc">
-                <label for="<?php echo esc_attr($field); ?>"><?php echo wp_kses_post($data['title']); ?></label>
-                <?php echo $this->get_tooltip_html($data); ?>
-            </th>
-            <td class="forminp">
-                <fieldset>
-                    <legend class="screen-reader-text"><span><?php echo wp_kses_post($data['title']); ?></span></legend>
-                    <?php 
-                    if ($connection_type == 'live') {
-
-                        if (! $is_sandbox_enabled) {
-                            // Check if the live account is connected
-                            $live_account_connection_status = 'connected';
-                            if (empty($this->get_option('live_client_id')) || empty($this->get_option('live_client_secret'))) {
-                                //Live API keys are missing. Account is not connected.
-                                $live_account_connection_status = 'not-connected';
-                            }
-
-                            if ($live_account_connection_status == 'connected') {
-                                //Production account connected
-                                echo '<div class="wcpprog-paypal-live-account-status"><span class="dashicons dashicons-yes" style="color:green;"></span>&nbsp;';
-                                _e("Live account is connected. If you experience any issues, please disconnect and reconnect.", "woocommerce-paypal-pro-payment-gateway");
-                                echo '</div>';
-                                // Show disconnect option for live account.
-                                $ppcp_onboarding_instance->output_production_ac_disconnect_link();
-                            } else {
-                                //Production account is NOT connected.
-                                echo '<div class="wcpprog-paypal-live-account-status"><span class="dashicons dashicons-no" style="color: red;"></span>&nbsp;';
-                                _e("Live PayPal account is not connected. Click the button below to authorize the app and acquire API credentials from your PayPal account.", "woocommerce-paypal-pro-payment-gateway");
-                                echo '</div>';
-                                // Show the onboarding link
-                                $ppcp_onboarding_instance->output_production_onboarding_link_code();
-                            }
-                        } else {
-                            echo '<p class="wcpprog_gray_box">';
-							_e("For live account onboarding, disable the sandbox mode from general settings.", "woocommerce-paypal-pro-payment-gateway");
-							echo '</p>';
-                        }
-                    } else {
-                        if ( $is_sandbox_enabled ) {
-                            //Check if the sandbox account is connected
-                            $sandbox_account_connection_status = 'connected';
-                            if (empty($this->get_option('sandbox_client_id')) || empty($this->get_option('sandbox_client_secret'))) {
-                                //Sandbox API keys are missing. Account is not connected.
-                                $sandbox_account_connection_status = 'not-connected';
-                            }
-
-                            if ($sandbox_account_connection_status == 'connected') {
-                                //Test account connected
-                                echo '<div class="wcpprog-paypal-sandbox-account-status"><span class="dashicons dashicons-yes" style="color:green;"></span>&nbsp;';
-                                _e("Sandbox account is connected. If you experience any issues, please disconnect and reconnect.", "woocommerce-paypal-pro-payment-gateway");
-                                echo '</div>';
-                                //Show disconnect option for sandbox account.
-                                $ppcp_onboarding_instance->output_sandbox_ac_disconnect_link();
-                            } else {
-                                //Sandbox account is NOT connected.
-                                echo '<div class="wcpprog-paypal-sandbox-account-status"><span class="dashicons dashicons-no" style="color: red;"></span>&nbsp;';
-                                _e("Sandbox PayPal account is not connected.", "woocommerce-paypal-pro-payment-gateway");
-                                echo '</div>';
-                                //Show the onboarding link for sandbox account.
-                                $ppcp_onboarding_instance->output_sandbox_onboarding_link_code();
-                            }
-                        } else {
-                            echo '<p class="wcpprog_gray_box">';
-							_e("For sandbox account onboarding, enable the sandbox mode from general settings.", "woocommerce-paypal-pro-payment-gateway");
-							echo '</p>';
-                            // echo '<button class="button button-primary" disabled>'.__('Get PayPal Sandbox Credentials', 'woocommerce-paypal-pro-payment-gateway').'</button>';
-                        }
-                    }
-                    ?>
-                </fieldset>
-            </td>
-        </tr>
-        <?php
-        return ob_get_clean();
-    }
-
-    public function generate_delete_access_token_cache_html($key, $data){
-        $field    = $this->plugin_id . $this->id . '_' . $key;
-        $defaults = array(
-            'class'             => '',
-            'css'               => '',
-            'custom_attrs' => array(),
-            'desc_tip'          => false,
-            'description'       => '',
-            'title'             => '',
-        );
-
-        $data = wp_parse_args($data, $defaults);
-
-        $ppcp_onboarding_instance = \TTHQ\WC_PP_PRO\Lib\PayPal\Onboarding\PayPal_PPCP_Onboarding::get_instance();
-        
-        $output = '';
-        ob_start();
-        ?>
-            <tr valign="top">
-                <th scope="row" class="titledesc">
-                    <label for="<?php echo esc_attr($field); ?>"><?php echo wp_kses_post($data['title']); ?></label>
-                    <?php echo $this->get_tooltip_html($data); ?>
-                </th>
-                <td class="forminp">
-                    <fieldset>
-                        <?php $ppcp_onboarding_instance->output_delete_token_cache_button(); ?>
-                    </fieldset>
-                </td>
-            <tr>
-        <?php
-
-        $output = ob_get_clean();
-
-        return $output;
     }
 
     /**
@@ -369,14 +278,15 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
      */
     public function admin_options() {
 		$return_path = null;
-		wc_back_header( $this->get_method_title(), esc_html__( 'Return to payments', 'woocommerce' ), \Automattic\WooCommerce\Internal\Admin\Settings\Utils::wc_payments_settings_url( $return_path ) );
+		wc_back_header( $this->get_method_title(), esc_html__( 'Return to payments', 'woocommerce-paypal-pro-payment-gateway' ), \Automattic\WooCommerce\Internal\Admin\Settings\Utils::wc_payments_settings_url( $return_path ) );
 
 		echo wp_kses_post( wpautop( $this->get_method_description() ) );
 
         $doc_link = 'https://wp-ecommerce.net/woocommerce-paypal-checkout-paypal-pro';
         $doc_link_html = '<a href="'.esc_url($doc_link).'" target="_blank">'.__( 'PayPal Checkout documentation', 'woocommerce-paypal-pro-payment-gateway').'</a>';
         echo '<p>';
-        echo sprintf(__( 'Please refer to the %s for setup instructions.', 'woocommerce-paypal-pro-payment-gateway'), $doc_link_html);
+        /* translators: %s: Link to the PayPal Checkout documentation. */
+        echo wp_kses_post( sprintf(__( 'Please refer to the %s for setup instructions.', 'woocommerce-paypal-pro-payment-gateway'), $doc_link_html) );
         echo '</p>';
 
         $current_tab = isset($_GET['subtab']) && !empty($_GET['subtab']) ? sanitize_text_field($_GET['subtab']) : 'general';
@@ -385,6 +295,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'general' => __('General', 'woocommerce-paypal-pro-payment-gateway'),
             'api_connection' => __('API Connection', 'woocommerce-paypal-pro-payment-gateway'),
             'api_credentials' => __('API Credentials', 'woocommerce-paypal-pro-payment-gateway'),
+            'webhooks' => __('Webhooks', 'woocommerce-paypal-pro-payment-gateway'),
         );
 
         echo '<h3 class="nav-tab-wrapper">';
@@ -396,6 +307,35 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 		echo '</h3>';
 
         $this->render_subtab_fields($current_tab);
+
+        wp_enqueue_script(
+            'woo-pp-pro-admin-js',
+            WC_PP_PRO_ADDON_URL . '/assets/js/woo-pp-pro-admin.js',
+            array(),
+            WC_PP_PRO_ADDON_VERSION,
+            true
+        );
+
+        wp_localize_script('woo-pp-pro-admin-js', 'wcpprog_admin_js_vars', array(
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'actions' => array(
+                'check_webhook' => 'wcpprog_ppcp_check_webhooks',
+                'create_webhook' => 'wcpprog_ppcp_create_webhook',
+                'delete_webhook' => 'wcpprog_ppcp_delete_webhooks',
+            ),
+            'nonces' => array(
+                'check_webhook' => wp_create_nonce( 'wcpprog-ppcp-check-webhook' ),
+                'create_webhook' => wp_create_nonce( 'wcpprog-ppcp-create-webhook' ),
+                'delete_webhook' => wp_create_nonce( 'wcpprog-ppcp-delete-webhook' ),
+            ),
+            'str' => array(
+                'clearing'        => __( 'Clearing...', 'woocommerce-paypal-pro-payment-gateway' ),
+                'errorOccured'    => __( 'Error occurred:', 'woocommerce-paypal-pro-payment-gateway' ),
+                'creatingWebhook' => __( 'Creating webhook...', 'woocommerce-paypal-pro-payment-gateway' ),
+                'deleting'        => __( 'Deleting...', 'woocommerce-paypal-pro-payment-gateway' ),
+            ),
+            'is_sandbox_enabled' => $this->sandbox,
+        ));
 	}
 
     public function render_subtab_fields($stab = 'general'){
@@ -412,9 +352,9 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 
         echo '<div style="padding: 6px 10px 0px">';
         if (!empty($subtab_fields)) {
-            echo '<table class="form-table">' . $this->generate_settings_html( $subtab_fields, false ) . '</table>'; // WPCS: XSS ok.
+            echo '<table class="form-table">' . $this->generate_settings_html( $subtab_fields, false ) . '</table>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- WooCommerce renders settings fields; custom renderers escape values and include required scripts.
         } else {
-            echo __('No fields found for this subtab', 'woocommerce-paypal-pro-payment-gateway');
+            echo esc_html__('No fields found for this subtab', 'woocommerce-paypal-pro-payment-gateway');
         }
         echo '</div>';
     }
@@ -434,6 +374,18 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 		$field_key = $this->get_field_key( $key );
 		$post_data = empty( $post_data ) ? $_POST : $post_data; // WPCS: CSRF ok, input var ok.
 		$value     = isset( $post_data[ $field_key ] ) ? $post_data[ $field_key ] : $this->get_option($key);
+
+        $current_subtab = isset($_GET['subtab']) ? $_GET['subtab'] : 'general';
+
+        /**
+         * Unchecked checkbox doesn't appear on the post request.
+         * Check if the checkbox belongs to current tab but not set (meaning unchecked)
+         */
+        if ($type == 'checkbox' && !isset( $post_data[$field_key] )) {
+            if (isset($this->form_fields[$key]) && $this->form_fields[$key]['subtab'] == $current_subtab ) {
+                return '';
+            }
+        }
 
 		if ( isset( $field['sanitize_callback'] ) && is_callable( $field['sanitize_callback'] ) ) {
 			return call_user_func( $field['sanitize_callback'], $value );
@@ -481,40 +433,73 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             return;
         }
 
-        wp_enqueue_script(
-            'paypal-checkout-sdk',
-            'https://www.paypal.com/sdk/js?client-id=' . esc_attr($this->client_id) . '&currency=' . get_woocommerce_currency(),
-            array('jquery'),
-            null,
-            true
+        $pp_btn_js_embed = PayPal_JS_Button_Embed::get_instance();
+
+        $pp_js_sdk_args = array(
+            'is_live_mode' => empty($this->sandbox),
+            'live_client_id' => $this->client_id,
+            'sandbox_client_id' => $this->client_id,
+            'currency' => get_woocommerce_currency(),
         );
+
+        $paypal_button_type = 'buy_now';
+
+        if ($this->is_subscription_checkout()){
+            $paypal_button_type = 'subscription';
+            $pp_js_sdk_args['intent'] = 'subscription';
+            $pp_js_sdk_args['is_subscription'] = 1;
+        }
+
+        $pp_btn_js_embed->set_settings_args($pp_js_sdk_args);
+
+        $pp_btn_js_embed->enqueue_papal_sdk_script($this->pp_js_sdk_script_handler);
 
         wp_enqueue_script(
             'woo-pp-pro-ppcp-related',
             WC_PP_PRO_ADDON_URL . '/assets/js/woo-pp-pro-ppcp-related.js',
-            array('jquery', 'paypal-checkout-sdk'),
-            null,
+            array('jquery', $this->pp_js_sdk_script_handler),
+            WC_PP_PRO_ADDON_VERSION,
             true
         );
 
-        wp_localize_script('paypal-checkout-sdk', 'wc_paypal_checkout_params', array(
+        wp_localize_script($this->pp_js_sdk_script_handler, 'wc_paypal_checkout_params', array(
             'ajax_url'    => admin_url('admin-ajax.php'),
             'nonce'       => wp_create_nonce(PayPal_Utils::auto_prefix('pp_checkout_nonce')),
             'create_order_ajax_action' => PayPal_Utils::auto_prefix('pp_create_order'),
             'capture_order_ajax_action' => PayPal_Utils::auto_prefix('pp_capture_order'),
+            'create_sub_order_ajax_action' => PayPal_Utils::auto_prefix('sub_pp_create_subscription'),
+            'onapprove_sub_order_ajax_action' => PayPal_Utils::auto_prefix('sub_onapprove_process_subscription'),
+            'webhook_missing_notice' => esc_js($this->webhook_missing_notice()),
+            'btn_type'    => esc_js($paypal_button_type),
             'currency'    => get_woocommerce_currency(),
             'total'       => WC()->cart ? WC()->cart->get_total('raw') : 0,
         ));
     }
 
+    public function webhook_missing_notice() {
+        if (! $this->is_subscription_checkout()){
+            return '';
+        }
+
+        $mode = $this->sandbox ? 'sandbox' : 'live';
+        $wh_id = PayPal_Utils::get_option( 'paypal_webhook_id_' . $mode );
+        if (empty($wh_id)) {
+            return esc_html__('Webhooks are not configured!', 'woocommerce-paypal-pro-payment-gateway');
+        }
+
+        return '';
+    }
+
+    /**
+     * Render PayPal button on cart page (for cart shortcode)
+     */
     public function payment_fields() {
         ?>
         <div id="paypal-checkout-button-container"></div>
         <script>
-            jQuery(function($) {
-                const btn_container_selector = '#paypal-checkout-button-container';
-                woo_pp_pro_render_ppcp_btn(btn_container_selector);
-            })
+            document.addEventListener('wcpprog_paypal_sdk_ready', function () {
+                woo_pp_pro_render_ppcp_btn('#paypal-checkout-button-container');
+            }, { once: true });
         </script>
         <?php
     }
@@ -533,9 +518,13 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             return;
         }
 
+        if ( $this->is_subscription_checkout() ) {
+            return;
+        }
+
         echo '<!-- PayPal Checkout: Rendering button on cart page -->';
         echo '<div class="wc-paypal-checkout-cart-button" style="border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px;">';
-        echo '<h3>' . __('Or pay with PayPal', 'woocommerce-paypal-pro-payment-gateway') . '</h3>';
+        echo '<h3>' . esc_html__('Or pay with PayPal', 'woocommerce-paypal-pro-payment-gateway') . '</h3>';
         echo '<div id="paypal-checkout-button-container" style="margin: 20px 0;"></div>';
         echo '</div>';
 
@@ -557,5 +546,31 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'result'   => 'success',
             'redirect' => '',
         );
+    }
+
+    public function is_subscription_checkout() {
+        return $this->is_cart_all_subscription();
+    }
+
+    /**
+     * Check whether every item in the cart is the custom subscription product type.
+     *
+     * @param WC_Cart|null $cart Optional. Defaults to the global cart.
+     * @return bool
+     */
+    public function is_cart_all_subscription( $cart = null ) {
+        $cart = !empty($cart) ? $cart : WC()->cart;
+
+        if ( ! $cart || $cart->is_empty() ) {
+            return false;
+        }
+
+        foreach ( $cart->get_cart() as $item ) {
+            if ( WCPPROG_Subscription_Related::SUBSCRIPTION_PRODUCT_TYPE !== $item['data']->get_type() ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

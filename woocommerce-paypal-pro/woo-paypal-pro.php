@@ -116,3 +116,7 @@ $GLOBALS['WC_Paypal_Pro_Gateway_Addon'] = new WC_Paypal_Pro_Gateway_Addon();
 require_once WC_PP_PRO_ADDON_PATH . '/woo-paypal-pro-woocommerce-init-handler.php';
 
 new WCPPROG_WooCommerce_Init_handler();
+
+require_once WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-related.php';
+
+new WCPPROG_Subscription_Related();

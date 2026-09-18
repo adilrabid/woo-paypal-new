@@ -10,6 +10,9 @@ class PayPal_Button_Sub_Ajax_Handler {
 
 	public $ipn_data  = array();
 
+	public $wc_paypal_ppcp;
+	private $checkout_customer_data = array();
+
 	public function __construct() {
 		//Handle it at 'wp_loaded' since custom post types will also be available at that point.
 		add_action( 'wp_loaded', array(&$this, 'setup_ajax_request_actions' ) );
@@ -37,316 +40,364 @@ class PayPal_Button_Sub_Ajax_Handler {
 		//We will create a plan for the button (if needed). Then create a subscription for the user and return the subscription ID.
 		//https://developer.paypal.com/docs/api/subscriptions/v1/#plans_create
 
-		//Get the data from the request
-		$data = isset( $_POST['data'] ) ? stripslashes_deep( $_POST['data'] ) : array();
-		if ( empty( $data ) ) {
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Empty data received.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-		}
-		
-		if( !is_array( $data ) ){
-			//Convert the JSON string to an array (Vanilla JS AJAX data will be in JSON format).
-			$data = json_decode( $data, true);		
-		}
+	    if(! check_ajax_referer(PayPal_Utils::auto_prefix('pp_checkout_nonce'), 'nonce', false)){
+		    wp_send_json_error(array('message' => 'Failed to create subscription. Nonce verification failed!'));
+	    }
 
-		//Get the product_id from the request.
-		$estore_product_id = isset( $data['estore_product_id'] ) ? intval( $data['estore_product_id'] ) : '';
-		$on_page_button_id = isset( $data['on_page_button_id'] ) ? sanitize_text_field( $data['on_page_button_id'] ) : '';
-		$unique_key = isset( $data['unique_key'] ) ? sanitize_text_field( $data['unique_key'] ) : '';
-		PayPal_Utils::log( 'sub_pp_create_subscription ajax request received. Product ID: '.$estore_product_id.', On Page Button ID: ' . $on_page_button_id . ', Unique Key: ' . $unique_key, true );
 
-		//Variation and Custom amount related data.
-		$item_name = isset( $data['item_name'] ) ? sanitize_text_field( $data['item_name'] ) : '';
-		$amount_submitted = isset( $data['amount'] ) ? floatval( $data['amount'] ) : 0;
-		$custom_price = isset( $data['custom_price'] ) ? floatval( $data['custom_price'] ) : 0;
-		PayPal_Utils::log( 'Item Name: ' . $item_name . ', Amount Submitted (includes any variation or custom price): ' . $amount_submitted, true );
+	    $gateways = WC()->payment_gateways()->payment_gateways();
 
-		// Check nonce.
-		if ( ! check_ajax_referer( $on_page_button_id, '_wpnonce', false ) ) {
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Nonce check failed. The page was most likely cached. Please reload the page and try again.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-			exit;
-		}
+	    $wc_paypal_ppcp = null;
+	    if ( isset( $gateways['paypal_checkout'] ) ) {
+		    $wc_paypal_ppcp = $gateways['paypal_checkout'];
+	    }
 
-		//Get the global config instance.
-		$wp_eStore_config = \WP_eStore_Config::getInstance();
+	    if (empty($wc_paypal_ppcp)) {
+		    wp_send_json_error(array('message' => 'Failed to create order. Payment Gateway not found.'));
+	    }
 
-		//Retrieve the product details from the database.
-		$id = $estore_product_id;
-		PayPal_Utils::log( 'Retrieving product details from the database for product ID: ' . $id, true );
-		$ret_product = eStore_get_product_row_by_id($id);
-		if (!$ret_product) {
-			$wrong_product_error_msg = eStore_wrong_product_id_error_msg($id);
-			PayPal_Utils::log( $wrong_product_error_msg, false );
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => $wrong_product_error_msg,
-				)
-			);
-			exit;
-		}
+	    $this->wc_paypal_ppcp = $wc_paypal_ppcp;
 
-		if (is_numeric($ret_product->available_copies)) {
-			if ($ret_product->available_copies < 1) {// No more copies left
-				$out_of_stock_error_msg = sprintf( __( "%s is out of stock.", "woocommerce-paypal-pro-payment-gateway" ), $ret_product->product_name );
-				PayPal_Utils::log( $out_of_stock_error_msg, false );
-				wp_send_json(
-					array(
-						'success' => false,
-						'err_msg'  => $out_of_stock_error_msg,
-					)
-				);
-				exit;
-			}
-		}
 
-		//Do a variation price validation (if applicable).
-		if (eStore_has_product_variation($estore_product_id) ){
-			$var_check_item_ary = array('item_number' => $estore_product_id, 'item_name' => $item_name, 'quantity' => 1, 'mc_gross' => $amount_submitted);
-			if( !eStore_is_variation_price_valid( $var_check_item_ary, $ret_product ) ){
-				$invalid_variation_price_error_msg = __( 'The selected product variation price is invalid. Please try again.', 'woocommerce-paypal-pro-payment-gateway' );
-				PayPal_Utils::log( $invalid_variation_price_error_msg . ' Variation check data: ' . print_r($var_check_item_ary, true), false );
-				wp_send_json(
-					array(
-						'success' => false,
-						'err_msg'  => $invalid_variation_price_error_msg,
-					)
-				);
-				exit;
-			}
+	    $cart = WC()->cart;
+
+	    if ( ! $cart || $cart->is_empty() ) {
+		    wp_send_json_error(array('message' => 'Failed to create subscription. Cart is empty!'));
+	    }
+
+		$cart_items = $cart->get_cart();
+
+	    /**
+	     * @var $sub_product object WC_Product
+	     */
+		$sub_product = null;
+	    foreach ( $cart_items as $item ) {
+		    if ( \WCPPROG_Subscription_Related::SUBSCRIPTION_PRODUCT_TYPE === $item['data']->get_type() ) {
+		        // PayPal_Utils::log_array($item['data']);
+			    $sub_product = $item['data'];
+				break;
+		    }
+	    }
+
+	    if ( ! $sub_product ) {
+		    wp_send_json_error( array( 'message' => __( 'No subscription product was found in your cart. Please refresh the page and try again.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+	    }
+
+	    $sub_product_id = $sub_product->get_id();
+
+		$this->read_checkout_customer_data();
+		try {
+			$subscription_data = $this->get_checkout_subscription_data( $cart, $sub_product );
+		} catch ( \InvalidArgumentException $error ) {
+			PayPal_Utils::log( 'Subscription checkout validation: ' . $error->getMessage(), false );
+			wp_send_json_error( array( 'message' => $error->getMessage() ) );
+		} catch ( \Throwable $error ) {
+			PayPal_Utils::log( 'Subscription totals calculation failed: ' . $error->getMessage(), false );
+			wp_send_json_error( array( 'message' => __( 'Unable to calculate subscription totals. Please refresh checkout and try again.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
 		}
 
 		//Note: For PPCP Subscription type buttons, the currency must be the same as the store's currency from settings (PayPal PPCP doesn't allow JS SDK to be one currency and the subscription plan to be in a different currency dynamically).
 
-		/************************************
-		 * Create or Get the PayPal Plan ID *
-		 ************************************/
-		if (eStore_has_product_custom_price($estore_product_id) && !empty($custom_price) && $custom_price > 0 ){
-			//For custom price products (it may include variation also), we will create a new plan on the fly because the price can be different for each user.
-			PayPal_Utils::log( 'Creating a new PayPal subscription plan for custom price product. Custom price input field value: ' . $custom_price . ', Amount submitted (includes any custom and variation price): ' . $amount_submitted, true );
-			$plan_create_error_msg = '';
-			$ret = PayPal_Utils::create_billing_plan_for_variation_product( $estore_product_id, $item_name, $amount_submitted, $custom_price );
-			if( $ret['success'] === true ){
-				$plan_id = $ret['plan_id'];
-				PayPal_Utils::log( 'Created new PayPal subscription plan for custom price product with name: ' . $item_name . ', Plan ID: ' . $plan_id, true );
-			} else {
-				$plan_create_error_msg = 'Error! Could not create the PayPal subscription plan for the custom price product. Error message: ' . esc_attr( $ret['error_message'] );
-			}
-		} else if (eStore_has_product_variation($estore_product_id) ){
-			// For variation only products, we will create a new plan for each variation on the fly because PayPal billing plans don't support variations. The variation details will be included in the plan name and price.
-			PayPal_Utils::log( 'Creating a new PayPal subscription plan for variation product. Amount submitted (includes any variation price): ' . $amount_submitted, true );
-			$plan_create_error_msg = '';
-			$ret = PayPal_Utils::create_billing_plan_for_variation_product( $estore_product_id, $item_name, $amount_submitted, $custom_price );
-			if( $ret['success'] === true ){
-				$plan_id = $ret['plan_id'];
-				PayPal_Utils::log( 'Created new PayPal subscription plan for variation product with name: ' . $item_name . ', Plan ID: ' . $plan_id, true );
-			} else {
-				$plan_create_error_msg = 'Error! Could not create the PayPal subscription plan for the variation product. Error message: ' . esc_attr( $ret['error_message'] );
-			}
-		} else {
-			//For normal product (non-variation and non-custom price), we will just get the plan ID from the product meta (or create a new one if not exists). 
-			//Get the plan ID (or create a new plan if needed) for the product.
-			$plan_id = estore_get_product_meta( $estore_product_id, 'pp_subscription_plan_id', true );
-			PayPal_Utils::log('PayPal billing plan ID from product meta: ' . $plan_id, true );
-			$plan_create_error_msg = '';
-			if( empty( $plan_id )){
-				//Need to create a new plan
-				$ret = PayPal_Utils::create_billing_plan_for_product( $estore_product_id );
-				if( $ret['success'] === true ){
-					$plan_id = $ret['plan_id'];
-					PayPal_Utils::log( 'Created new PayPal subscription plan for product ID: ' . $estore_product_id . ', Plan ID: ' . $plan_id, true );
-				} else {
-					$plan_create_error_msg = 'Error! Could not create the PayPal subscription plan for the product. Error message: ' . esc_attr( $ret['error_message'] );
-				}
-			} else {
-				//Found a plan ID. Check if this plan exists in the PayPal account.
-				PayPal_Utils::log('Found a plan ID. Check if this billing plan ID (' . $plan_id . ') still exists in PayPal account. If not, create a fresh new plan.', true );
-				if( !PayPal_Utils::check_billing_plan_exists( $plan_id ) ){
-					//The plan ID does not exist in the PayPal account. Maybe the plan was created earlier in a different mode or using a different paypal account. 
-					//We need to create a fresh new plan for this button.
-					$ret = PayPal_Utils::create_billing_plan_fresh_new( $estore_product_id );
-					if( $ret['success'] === true ){
-						$plan_id = $ret['plan_id'];
-						PayPal_Utils::log( 'Created new PayPal subscription plan for product ID: ' . $estore_product_id . ', Plan ID: ' . $plan_id, true );
-					} else {
-						$plan_create_error_msg = 'Error! Could not create the PayPal subscription plan for the product. Error message: ' . esc_attr( $ret['error_message'] );
-					}            
-				}
-			}
-		}
+	    /*
+		 * Get the plan ID (or create a new plan if needed) for the product.
+	     */
+        $plan = PayPal_Utils::create_billing_plan_for_product( $sub_product_id );
+        if ( ! $plan['success'] ) {
+            wp_send_json_error( array( 'message' => $plan['error_message'] ) );
+        }
 
-		//Check if any error occurred while creating the plan.
-		if( !empty( $plan_create_error_msg ) ){
-			PayPal_Utils::log( $plan_create_error_msg, false );
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => $plan_create_error_msg,
-				)
-			);
-			exit;
-		}
+        $plan_id = isset($plan['plan_id']) ? sanitize_text_field($plan['plan_id']) : '';
 
-		/*************************************
-		 * Create the subscription on PayPal *
-		 ************************************/
-		//Going to create the subscription by making the PayPal API call.
+	    /*
+		 * Create the subscription on PayPal
+		 */
 		$api_injector = new PayPal_Request_API_Injector();
 
-		//Set the additional args for the API call.
+		// Set the additional args for the API call.
 		$additional_args = array();
-		$additional_args['return_response_body'] = true;
+		$additional_args['return_raw_response'] = true;
 
-		$response = $api_injector->create_paypal_subscription_for_billing_plan( $plan_id, $data, $additional_args );
+		$response = $api_injector->create_paypal_subscription_for_billing_plan( $plan_id, $subscription_data, $additional_args );
 
-		//We requested the full response body to be returned, so we need to JSON decode it.
-		if( $response !== false ){
-			//JSON decode the response body to an array.
-			$sub_data = json_decode( $response, true );
-			$paypal_sub_id = isset( $sub_data['id'] ) ? $sub_data['id'] : '';
-		} else {
-			//Failed to create the order.
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Failed to create the subscription using PayPal API. Enable the debug logging feature to get more details.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-			exit;
+		if ( is_wp_error( $response ) ) {
+			PayPal_Utils::log( 'PayPal subscription transport error: ' . $response->get_error_message(), false );
+			wp_send_json_error( array( 'message' => __( 'Unable to connect to PayPal. Please try again.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+		}
+
+		$status = wp_remote_retrieve_response_code( $response );
+
+		$sub_data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		// Debug purpose only
+		// PayPal_Utils::log( "Received subscription data: " );
+		// PayPal_Utils::log_array( $sub_data );
+
+		$paypal_sub_id = isset( $sub_data['id'] ) ? sanitize_text_field($sub_data['id']) : '';
+		if ( $status < 200 || $status >= 300 || empty( $paypal_sub_id ) ) {
+			// Raw-body mode previously hid HTTP errors and skipped the API logger.
+			$details = array();
+			foreach ( isset( $sub_data['details'] ) && is_array( $sub_data['details'] ) ? $sub_data['details'] : array() as $detail ) {
+				$details[] = array_intersect_key( $detail, array_flip( array( 'field', 'issue', 'description' ) ) );
+			}
+			$debug_id = wp_remote_retrieve_header( $response, 'paypal-debug-id' );
+
+			PayPal_Utils::log( 'PayPal subscription creation rejected or returned an invalid response.', false );
+			PayPal_Utils::log_array( array(
+				'http_status' => $status,
+				'debug_id' => $debug_id ?: ( $sub_data['debug_id'] ?? '' ),
+				'name' => $sub_data['name'] ?? '',
+				'message' => $sub_data['message'] ?? 'Response did not contain a subscription ID.',
+				'details' => $details,
+				'plan_id' => $plan_id,
+				'plan_override' => $subscription_data['plan'],
+				'shipping_preference' => $subscription_data['application_context']['shipping_preference'] ?? '',
+			), false );
+
+			$message = __( 'PayPal could not create the subscription.', 'woocommerce-paypal-pro-payment-gateway' );
+			foreach ( $details as $detail ) {
+				if ( ! empty( $detail['issue'] ) ) {
+					$message .= ' ' . sanitize_text_field( $detail['issue'] );
+					if ( ! empty( $detail['field'] ) ) {
+						$message .= ' (' . sanitize_text_field( $detail['field'] ) . ')';
+					}
+				}
+			}
+			wp_send_json_error( array( 'message' => $message ) );
 		}
 
 		//Uncomment the following line to see more details of the subscription data.
 		//PayPal_Utils::log_array( $sub_data, true );
 
-		PayPal_Utils::log( 'PayPal Subscription ID: ' . $paypal_sub_id, true );
+		$wc_order = $this->create_wc_order_from_cart();
+	    if ( empty($wc_order)) {
+		    wp_send_json_error(array('message' => 'Failed to create order'));
+	    }
 
-		//Save the item details in the transient for 12 hours (so we can use it later in the success request).
-		//(we will use this one in the IPN processing stage).
-		$sub_item_data = array(
-			'estore_product_id' => $estore_product_id,
-			'item_name' => $item_name,
-			'amount' => $amount_submitted,
-			'custom_price' => $custom_price,
-		);
-		$transient_key = 'estore_ppcp_subscription_id_' . $paypal_sub_id;
-		set_transient( $transient_key, $sub_item_data, 12 * HOUR_IN_SECONDS );
 		//Debugging purpose.
 		//PayPal_Utils::log_array( $sub_item_data, true );		
 
-		//If everything is processed successfully, send the success response.
-		wp_send_json( array( 'success' => true, 'subscription_id' => $paypal_sub_id, 'sub_data' => $sub_data ) );
-		exit;
+	    // Store PayPal order ID in WC order meta
+	    $wc_order->update_meta_data('_paypal_subscription_id', $paypal_sub_id);
+		$wc_order->update_meta_data( '_wcpprog_paypal_plan_id', $plan_id );
+		$wc_order->update_meta_data( '_wcpprog_has_trial', $sub_product->is_trial_enabled() ? 'yes' : 'no' );
+		WC()->session->set( 'wcpprog_subscription_approval_order', $wc_order->get_id() );
+		$wc_order->update_meta_data( '_wcpprog_initial_payment_pending', (float) $wc_order->get_total() > 0 ? 'yes' : 'no' );
+
+	    $wc_order_attributions = isset($_POST['attributions']) ? map_deep( json_decode(wp_unslash( $_POST['attributions'] ), true), 'sanitize_text_field') : array();
+	    if (!empty($wc_order_attributions)) {
+			PayPal_Utils::add_wc_order_attribution_fields( $wc_order,  $wc_order_attributions);
+		}
+
+	    $wc_order->save();
+
+	    //If everything is processed successfully, send the success response.
+		wp_send_json_success( array(
+			'subscription_id' => $paypal_sub_id
+		) );
     }
 
+
+
+	/**
+	 * Override prices for this buyer using WooCommerce's tax/discount calculations.
+	 * Amounts include shipping, taxes and fees; do not add PayPal taxes on top.
+	 */
+	private function get_checkout_subscription_data( $cart, $product ) {
+		$cart->calculate_totals();
+		$totals = \WCPPROG_Subscription_Related::get_subscription_checkout_totals( $cart, $product );
+		$initial_total = $totals['initial'];
+		$recurring_total = $totals['recurring'];
+		$has_trial = $product->is_trial_enabled();
+		$money = static function ( $amount ) {
+			return array( 'currency_code' => get_woocommerce_currency(), 'value' => wc_format_decimal( $amount, wc_get_price_decimals() ) );
+		};
+		$cycles = array();
+		if ( $has_trial ) {
+			$cycles[] = array( 'sequence' => 1, 'pricing_scheme' => array( 'fixed_price' => $money( $initial_total ) ) );
+		}
+		$cycles[] = array( 'sequence' => $has_trial ? 2 : 1, 'pricing_scheme' => array( 'fixed_price' => $money( $recurring_total ) ) );
+		$data = array( 'plan' => array( 'billing_cycles' => $cycles ), 'quantity' => '1' );
+		if ( $cart->needs_shipping() ) {
+			$customer = WC()->customer;
+			$address = array(
+				'address_line_1' => $customer->get_shipping_address_1(),
+				'address_line_2' => $customer->get_shipping_address_2(),
+				'admin_area_2' => $customer->get_shipping_city(),
+				'admin_area_1' => $customer->get_shipping_state(),
+				'postal_code' => $customer->get_shipping_postcode(),
+				'country_code' => $customer->get_shipping_country(),
+			);
+			// calculate_shipping() returns selected rates on older WooCommerce too.
+			// Do not test shipping_total: a valid selected rate can be free.
+			if ( empty( $address['address_line_1'] ) || empty( $address['country_code'] ) ) {
+				throw new \InvalidArgumentException( esc_html__( 'Please enter a complete shipping address before subscribing.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			}
+			$rates = $cart->calculate_shipping();
+			$packages = WC()->shipping()->get_packages();
+			$chosen = (array) WC()->session->get( 'chosen_shipping_methods', array() );
+			if ( ! $rates || ! $packages ) {
+				throw new \InvalidArgumentException( esc_html__( 'No shipping options are available for this address. Please verify the address is correct or try a different address.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			}
+			foreach ( $packages as $key => $package ) {
+				if ( empty( $package['rates'] ) ) {
+					throw new \InvalidArgumentException( esc_html__( 'No shipping options are available for this address. Please verify the address is correct or try a different address.', 'woocommerce-paypal-pro-payment-gateway' ) );
+				}
+				if ( empty( $chosen[ $key ] ) || ! isset( $package['rates'][ $chosen[ $key ] ] ) ) {
+					throw new \InvalidArgumentException( esc_html__( 'Please select an available shipping method before subscribing.', 'woocommerce-paypal-pro-payment-gateway' ) );
+				}
+			}
+			$full_name = isset( $_POST['shipping_full_name'] ) && is_string( $_POST['shipping_full_name'] )
+				? sanitize_text_field( wp_unslash( $_POST['shipping_full_name'] ) ) : '';
+			if ( '' === $full_name ) {
+				$full_name = trim( $customer->get_shipping_first_name() . ' ' . $customer->get_shipping_last_name() );
+			}
+			if ( '' === $full_name ) {
+				$full_name = trim( $customer->get_billing_first_name() . ' ' . $customer->get_billing_last_name() );
+			}
+			if ( '' === $full_name ) {
+				wp_send_json_error( array( 'message' => __( 'Please enter the shipping recipient’s name in checkout before subscribing.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+			}
+			$data['subscriber']['shipping_address'] = array(
+				'name' => array( 'full_name' => $full_name ),
+				'address' => array_filter( $address, 'strlen' ),
+			);
+			$data['application_context']['shipping_preference'] = 'SET_PROVIDED_ADDRESS';
+		} else {
+			$data['application_context']['shipping_preference'] = 'NO_SHIPPING';
+		}
+		PayPal_Utils::log( 'Subscription checkout totals (including tax, shipping, fees and discounts).', true );
+		PayPal_Utils::log_array( array( 'initial' => $money( $initial_total ), 'recurring' => $money( $recurring_total ), 'trial' => $has_trial ), true );
+		return $data;
+	}
+
+	/**
+	 * Read only supported address fields, never customer IDs or posted totals.
+	 */
+	private function read_checkout_customer_data() {
+		$posted = isset( $_POST['checkout_customer'] ) && is_string( $_POST['checkout_customer'] )
+			? json_decode( wp_unslash( $_POST['checkout_customer'] ), true ) : array();
+		$customer = WC()->customer;
+		foreach ( array( 'billing', 'shipping' ) as $type ) {
+			foreach ( array( 'first_name', 'last_name', 'company', 'address_1', 'address_2', 'city', 'state', 'postcode', 'country', 'email', 'phone' ) as $field ) {
+				$key = $type . '_' . $field;
+				$getter = 'get_' . $key;
+				if ( ! is_callable( array( $customer, $getter ) ) ) {
+					continue;
+				}
+				$value = isset( $posted[ $type ] ) && is_array( $posted[ $type ] ) && array_key_exists( $field, $posted[ $type ] )
+					? $posted[ $type ][ $field ] : $customer->$getter();
+				$this->checkout_customer_data[ $key ] = is_scalar( $value ) ? sanitize_text_field( (string) $value ) : '';
+			}
+		}
+		$data = $this->checkout_customer_data;
+		if ( empty( $data['billing_first_name'] ) || empty( $data['billing_last_name'] ) || ! is_email( $data['billing_email'] ?? '' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Please enter your billing name and a valid email address before subscribing.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+		}
+		foreach ( $data as $key => $value ) {
+			$setter = 'set_' . $key;
+			$customer->$setter( $value );
+		}
+	}
+
+	/**
+	 * Create WooCommerce order from current cart
+	 */
+	private function create_wc_order_from_cart() {
+		try {
+			// Create order from cart
+			$checkout = WC()->checkout();
+
+			// Get posted data
+			$data = $this->checkout_customer_data;
+			$data['ship_to_different_address'] = 1;
+
+			// Create the order
+			$order_id = $checkout->create_order($data);
+
+			if (is_wp_error($order_id)) {
+				return false;
+			}
+
+			$order = wc_get_order($order_id);
+
+			// Set payment method
+			$order->set_payment_method($this->wc_paypal_ppcp);
+			$order->set_payment_method_title($this->wc_paypal_ppcp->get_title());
+
+			// Update status to pending
+			$order->update_status('pending', __('PayPal Checkout payment pending.', 'woocommerce-paypal-pro-payment-gateway'));
+
+			$order->save();
+
+			return $order;
+		} catch (\Exception $e) {
+			return null;
+		}
+	}
 
 	/**
 	 * Handle the onApprove ajax request for 'Subscription' type buttons
 	 */
     public function sub_onapprove_process_subscription(){
+	    if(! check_ajax_referer(PayPal_Utils::auto_prefix('pp_checkout_nonce'), 'nonce', false)){
+		    wp_send_json_error(array('message' => 'Failed to approve subscription. Nonce verification failed!'));
+	    }
 
 		//Get the data from the request
-		$data = isset( $_POST['data'] ) ? json_decode( stripslashes_deep( $_POST['data'] ), true ) : array();
+		$data = isset( $_POST['data'] ) ? json_decode( wp_unslash( $_POST['data'] ), true ) : array();
 		if ( empty( $data ) ) {
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Empty data received.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
+			wp_send_json_error( array(
+				'message'  => __( 'Empty data received.', 'woocommerce-paypal-pro-payment-gateway' ),
+			));
 		}
 		PayPal_Utils::log_array( $data, true );//Debugging only
 
-		//Get the product_id from the request.
-		$estore_product_id = isset( $data['estore_product_id'] ) ? intval( $data['estore_product_id'] ) : '';
-		$on_page_button_id = isset( $data['on_page_button_id'] ) ? sanitize_text_field( $data['on_page_button_id'] ) : '';
-		$unique_key = isset( $data['unique_key'] ) ? sanitize_text_field( $data['unique_key'] ) : '';
-		PayPal_Utils::log( 'sub_onapprove_process_subscription ajax request received. Product ID: '.$estore_product_id.', On Page Button ID: ' . $on_page_button_id . ', Unique Key: ' . $unique_key, true );
-
-		// Check nonce.
-		if ( ! check_ajax_referer( $on_page_button_id, '_wpnonce', false ) ) {
-			wp_send_json(
-				array(
-					'success' => false,
-					'err_msg'  => __( 'Nonce check failed. The page was most likely cached. Please reload the page and try again.', 'woocommerce-paypal-pro-payment-gateway' ),
-				)
-			);
-			exit;
-		}
-
 		//Get the transaction data from the request.
-		$txn_data = isset( $_POST['txn_data'] ) ? json_decode( stripslashes_deep( $_POST['txn_data'] ), true ) : array();
-		//PayPal_Utils::log( 'Transaction data received from the onApprove ajax request.', true );
-		//PayPal_Utils::log_array( $txn_data, true );//Debugging only.
-
+		$txn_data = isset( $_POST['txn_data'] ) ? json_decode( wp_unslash( $_POST['txn_data'] ), true ) : array();
 		if ( empty( $txn_data ) ) {
-			wp_send_json(
+			wp_send_json_error(
 				array(
-					'success' => false,
-					'err_msg'  => __( 'Empty transaction data received.', 'woocommerce-paypal-pro-payment-gateway' ),
+					'message'  => __( 'Empty transaction data received.', 'woocommerce-paypal-pro-payment-gateway' ),
 				)
 			);
 		}
 
 		//Create the IPN data array from the transaction data.
 		//Need to include the following values in the $data array.
-		$data['custom_field'] = get_transient( $unique_key );//We saved the custom field data in the transient using the unique key.
-		$this->create_ipn_data_array_from_create_subscription_txn_data( $data, $txn_data );
-		//PayPal_Utils::log_array( $this->ipn_data, true );//Debugging only.
-		
+//		$data['custom_field'] = get_transient( $unique_key );//We saved the custom field data in the transient using the unique key. // TODO: Remvoe this
+
 		//Validate the subscription txn data before using it.
-		$validation_response = $this->validate_subscription_checkout_txn_data( $data, $txn_data );
+		$validation_response = $this->validate_subscription_checkout_txn_data( $data, $txn_data ); // TODO: need to uncomment
 		if( $validation_response !== true ){
-			wp_send_json(
+			wp_send_json_error(
 				array(
-					'success' => false,
-					'err_msg'  => $validation_response,
+					'message'  => $validation_response,
 				)
 			);
-			exit;
 		}
 
 		//Process the IPN data array
-		PayPal_Utils::log( 'Validation passed. Going to save the subscription transaction data.', true );
+		$this->create_ipn_data_array_from_create_subscription_txn_data( $data, $txn_data );
+		PayPal_Utils::log( 'Validation passed! Going to save the subscription transaction data.', true );
 
-		$cart_items = array();
-		//We will create a single cart item from the IPN data for saving the transaction
-		$current_cart_item = array();
-		$current_cart_item['item_number'] = $estore_product_id;
-		$current_cart_item['item_name'] = $this->ipn_data['item_name'];
-		$current_cart_item['quantity'] = 1;
-		$current_cart_item['mc_gross'] = $this->ipn_data['mc_gross'];
-		$cart_items[] = $current_cart_item;
-
-		$this->save_subscription_txn_data( $this->ipn_data, $cart_items, $txn_data );
+	    $wc_order = PayPal_Utility_IPN_Related::complete_post_subscription_payment_processing( $data, $txn_data, $this->ipn_data );
+	    if (is_wp_error($wc_order)) {
+		    wp_send_json_error(array('message' => $wc_order->get_error_message()));
+	    }
 
 		// Trigger the IPN processed action hook (so other plugins can can listen for this event).
-		do_action( 'paypal_ppcp_subscription_checkout_ipn_processed', $this->ipn_data );
-		do_action( 'paypal_payment_ipn_processed', $this->ipn_data );
+		do_action( PayPal_Utils::auto_prefix('paypal_ppcp_subscription_checkout_ipn_processed'), $this->ipn_data );
+		do_action( PayPal_Utils::auto_prefix('paypal_payment_ipn_processed'), $this->ipn_data );
 
-		//Get the thank you page URL
-		$estore_product_db_row = eStore_get_product_row_by_id( $estore_product_id );
-		$thank_you_page_url = isset( $estore_product_db_row->return_url ) ? esc_url( $estore_product_db_row->return_url ) : '';
-		if( empty( $thank_you_page_url ) ){
-			$thank_you_page_url = get_option('cart_return_from_paypal_url');
-		}
-		$redirect_url = $thank_you_page_url;
+		//Get the thank-you page URL
+		$redirect_url = $wc_order->get_checkout_order_received_url();;
 
 		//If everything is processed successfully, send the success response.
-		wp_send_json( array(
-			'success' => true,
-			'subscription_id' => isset( $this->ipn_data['subscr_id'] ) ? $this->ipn_data['subscr_id'] : '',			
-			'redirect_url' => $redirect_url,
+		wp_send_json_success( array(
+			'message' => 'Subscription approved successfully.',
+			// 'subscription_id' => isset( $this->ipn_data['subscr_id'] ) ? $this->ipn_data['subscr_id'] : '',
+			'redirect_to' => $redirect_url,
 		) );
-		exit;
     }
 
 	public function create_ipn_data_array_from_create_subscription_txn_data( $data, $txn_data ) {
@@ -491,162 +542,46 @@ class PayPal_Button_Sub_Ajax_Handler {
 	/**
 	 * Validate that the subscription exists in PayPal and the price matches the price in the DB.
 	 */
-	public function validate_subscription_checkout_txn_data( $data, $txn_data ) {
-		//Get the subscription details from PayPal API endpoint - v1/billing/subscriptions/{$subscription_id}
-		$subscription_id = $data['subscriptionID'];
-		$button_id = $data['button_id'];
-
-		$validation_error_msg = '';
-
-		//This is for on-site checkout only. So the 'mode' and API creds will be whatever is currently set in the settings.
-		$api_injector = new PayPal_Request_API_Injector();
-		$sub_details = $api_injector->get_paypal_subscription_details( $subscription_id );
-		if( $sub_details !== false ){
-			$billing_info = $sub_details->billing_info;
-			if(is_object($billing_info)){
-				//Convert the object to an array.
-				$billing_info = json_decode(json_encode($billing_info), true);
-			}
-			//PayPal_Utils::log_array( $billing_info, true );//Debugging only.
-			
-			$tenure_type = isset($billing_info['cycle_executions'][0]['tenure_type']) ? $billing_info['cycle_executions'][0]['tenure_type'] : ''; //'REGULAR' or 'TRIAL'
-			$sequence = isset($billing_info['cycle_executions'][0]['sequence']) ? $billing_info['cycle_executions'][0]['sequence'] : '';//1, 2, 3, etc.
-			$cycles_completed = isset($billing_info['cycle_executions'][0]['cycles_completed']) ? $billing_info['cycle_executions'][0]['cycles_completed'] : '';//1, 2, 3, etc.
-			PayPal_Utils::log( 'Subscription tenure type: ' . $tenure_type . ', Sequence: ' . $sequence . ', Cycles Completed: '. $cycles_completed, true );			
-
-			//Tenure type - 'REGULAR' or 'TRIAL'
-			$tenure_type = isset($billing_info['cycle_executions'][0]['tenure_type']) ? $billing_info['cycle_executions'][0]['tenure_type'] : 'REGULAR';
-			//If tenure type is 'TRIAL', check that this button has a trial period.
-			if( $tenure_type === 'TRIAL' ){
-				PayPal_Utils::log('Trial payment detected.', true);//TODO - remove later.
-
-				//Check that the button has a trial period.
-				$trial_billing_cycle = get_post_meta( $button_id, 'trial_billing_cycle', true );
-				if( empty($trial_billing_cycle) ){
-					//This button does not have a trial period. So this is not a valid trial payment.
-					$validation_error_msg = 'Validation Error! This is a trial payment but the button does not have a trial period configured. Button ID: ' . $button_id . ', Subscription ID: ' . $subscription_id;
-					PayPal_Utils::log( $validation_error_msg, false );
-					return $validation_error_msg;
-				}
-			} else {
-				//This is a regular subscription checkout (without trial). Check that the price matches.
-				$amount = isset($billing_info['last_payment']['amount']['value']) ? $billing_info['last_payment']['amount']['value'] : 0;
-				$recurring_billing_amount = get_post_meta( $button_id, 'recurring_billing_amount', true );
-				if( $amount < $recurring_billing_amount ){
-					//The amount does not match.
-					$validation_error_msg = 'Validation Error! The subscription amount does not match. Button ID: ' . $button_id . ', Subscription ID: ' . $subscription_id . ', Amount Received: ' . $amount . ', Amount Expected: ' . $recurring_billing_amount;
-					PayPal_Utils::log( $validation_error_msg, false );
-					return $validation_error_msg;
-				}
-				//Check that the Currency code matches
-				// $currency = isset($billing_info['last_payment']['amount']['currency_code']) ? $billing_info['last_payment']['amount']['currency_code'] : '';
-				// $currency_expected = get_post_meta( $button_id, 'payment_currency', true );
-				// if( $currency !== $currency_expected ){
-				// 	//The currency does not match.
-				// 	$validation_error_msg = 'Validation Error! The subscription currency does not match. Button ID: ' . $button_id . ', Subscription ID: ' . $subscription_id . ', Currency Received: ' . $currency . ', Currency Expected: ' . $currency_expected;
-				// 	PayPal_Utils::log( $validation_error_msg, false );
-				// 	return $validation_error_msg;
-				// }
-			}
-
-		} else {
-			//Error getting subscription details.
-			$validation_error_msg = 'Validation Error! Failed to get subscription details from the PayPal API. Subscription ID: ' . $subscription_id;
-			//TODO - Show additional error details if available.
-			PayPal_Utils::log( $validation_error_msg, false );
-			return $validation_error_msg;
+	public function validate_subscription_checkout_txn_data( $data, &$txn_data ) {
+		$subscription_id = isset( $data['subscriptionID'] ) ? sanitize_text_field( $data['subscriptionID'] ) : '';
+		$orders = $subscription_id ? wc_get_orders( array( 'type' => 'shop_order', 'meta_key' => '_paypal_subscription_id', 'meta_value' => $subscription_id, 'orderby' => 'ID', 'order' => 'ASC', 'limit' => 1 ) ) : array();
+		$order = $orders ? $orders[0] : false;
+		$session_orders = array_map( 'absint', array( WC()->session->get( 'wcpprog_subscription_approval_order' ), WC()->session->get( 'wcpprog_subscription_checkout_order' ), WC()->session->get( 'order_awaiting_payment' ) ) );
+		if ( ! $order || (int) $order->get_customer_id() !== get_current_user_id()
+			|| ( ! get_current_user_id() && ! in_array( $order->get_id(), $session_orders, true ) ) ) {
+			return __( 'The subscription does not belong to this checkout session.', 'woocommerce-paypal-pro-payment-gateway' );
 		}
-
-		//All good. The data is valid.
+		$api = new PayPal_Request_API_Injector();
+		$details = $api->get_paypal_subscription_details( $subscription_id );
+		if ( ! $details || ( $details->id ?? '' ) !== $subscription_id || 'ACTIVE' !== ( $details->status ?? '' ) ) {
+			PayPal_Utils::log( 'Subscription approval not confirmed by PayPal for order #' . $order->get_id(), false );
+			return __( 'PayPal has not confirmed an active subscription. Please try again.', 'woocommerce-paypal-pro-payment-gateway' );
+		}
+		$plan_id = $order->get_meta( '_wcpprog_paypal_plan_id', true );
+		if ( $plan_id && $plan_id !== ( $details->plan_id ?? '' ) ) {
+			return __( 'The PayPal subscription plan does not match this order.', 'woocommerce-paypal-pro-payment-gateway' );
+		}
+		$trial_setting = $order->get_meta( '_wcpprog_has_trial', true );
+		$has_trial = 'yes' === $trial_setting;
+		// Orders created before the snapshot was introduced still have product items.
+		if ( '' === $trial_setting ) {
+			foreach ( $order->get_items() as $item ) {
+				$product = $item->get_product();
+				if ( $product instanceof \WCPPROG_Subscription_Product && $product->is_trial_enabled() ) {
+					$has_trial = true;
+				}
+			}
+		}
+		foreach ( $details->billing_info->cycle_executions ?? array() as $cycle ) {
+			if ( 'TRIAL' === ( $cycle->tenure_type ?? '' ) && ! $has_trial ) {
+				return __( 'PayPal reports a trial that is not configured for this order.', 'woocommerce-paypal-pro-payment-gateway' );
+			}
+		}
+		// Approval does not prove payment. The verified sale webhook validates
+		// the actual amount/currency and records the transaction on the order.
+		$txn_data = json_decode( wp_json_encode( $details ), true );
+		PayPal_Utils::log( 'Subscription approval validated against WooCommerce order #' . $order->get_id() . '; trial: ' . ( $has_trial ? 'yes' : 'no' ), true );
 		return true;
-	}
-
-	public function save_subscription_txn_data( $ipn_data, $cart_items, $txn_data ) {
-		global $wpdb;
-		$customvariables = eStore_get_payment_custom_var($ipn_data['custom']);
-
-		$firstname = $ipn_data['first_name'];
-		$lastname = $ipn_data['last_name'];
-		$emailaddress = $ipn_data['payer_email'];
-		$clientdate = (date("Y-m-d"));
-		$clienttime = (date("H:i:s"));
-
-		$eMember_id = $customvariables['eMember_id'];
-		if(empty($eMember_id)){$eMember_id = $customvariables['eMember_userid'];}
-
-		$customer_ip = $customvariables['ip'];
-		if (empty($customer_ip)) {$customer_ip = "No information";}
-
-		$status = "Paid Recurring Payment";
-		$coupon_used = isset($ipn_data['coupon_used'])? $ipn_data['coupon_used'] : '';
-
-		foreach ($cart_items as $current_cart_item) {
-
-			$current_product_id = $current_cart_item['item_number'];
-			$cart_item_data_name = $current_cart_item['item_name'];
-			$cart_item_qty = $current_cart_item['quantity'];
-			$sale_price = $current_cart_item['mc_gross'];
-
-			//Update the Customer table
-			$fields = array();
-			$fields['first_name'] = $firstname;
-			$fields['last_name'] = $lastname;
-			$fields['email_address'] = $emailaddress;
-			$fields['purchased_product_id'] = $current_product_id;
-			$fields['txn_id'] = $ipn_data['txn_id'];
-			$fields['date'] = $clientdate;
-			$fields['sale_amount'] = $sale_price;
-			$fields['coupon_code_used'] = $coupon_used;
-			$fields['member_username'] = $eMember_id;
-			$fields['product_name'] = stripslashes($cart_item_data_name);
-			$fields['address'] = stripslashes($ipn_data['address']);
-			$fields['phone'] = isset($ipn_data['phone']) ? $ipn_data['phone'] : '';
-			$fields['subscr_id'] = $ipn_data['subscr_id'];
-			$fields['purchase_qty'] = $cart_item_qty;
-			$fields['ipaddress'] = $customer_ip;
-			$fields['status'] = $status;
-			$fields['serial_number'] = isset($ipn_data['product_key_data']) ? stripslashes($ipn_data['product_key_data']) : '';
-			$fields['notes'] = '';
-			$fields['address_street'] = isset($ipn_data['address_street'])? stripslashes($ipn_data['address_street']) : '';
-			$fields['address_city'] = isset($ipn_data['address_city'])? stripslashes($ipn_data['address_city']) : '';
-			$fields['address_state'] = isset($ipn_data['address_state'])? stripslashes($ipn_data['address_state']) : '';
-			$fields['address_zip'] = isset($ipn_data['address_zip'])? stripslashes($ipn_data['address_zip']) : '';
-			$fields['address_country'] = isset($ipn_data['address_country'])? stripslashes($ipn_data['address_country']) : '';
-
-			//Debugging only
-			PayPal_Utils::log_array($fields, true);
-
-			$fields = array_filter($fields);//Remove any null values.
-			$result = $wpdb->insert(WP_ESTORE_CUSTOMER_TABLE_NAME, $fields);
-			if(!$result){
-				PayPal_Utils::log('Notice! initial database table insert failed. Trying again by converting charset.', true);
-				//Convert the charset to UTF-8 format
-				$cart_item_data_name = mb_convert_encoding($cart_item_data_name, "UTF-8", "windows-1252");
-				$fields['product_name'] = stripslashes($cart_item_data_name);
-				$fields['first_name'] = mb_convert_encoding($firstname, "UTF-8", "windows-1252");
-				$fields['last_name'] = mb_convert_encoding($lastname, "UTF-8", "windows-1252");
-				$buyer_shipping_info = mb_convert_encoding($ipn_data['address'], "UTF-8", "windows-1252");
-				$fields['address'] = stripslashes($buyer_shipping_info);
-				$result = $wpdb->insert(WP_ESTORE_CUSTOMER_TABLE_NAME, $fields);
-				if(!$result){
-					PayPal_Utils::log('Error! Failed to update customer data into the database table. DB insert query failed.', false);
-				}
-			}
-
-			//Update the sales/stats table
-			$sales_data = array();
-			$sales_data['cust_email'] = $emailaddress;
-			$sales_data['date'] = $clientdate;
-			$sales_data['time'] = $clienttime;
-			$sales_data['item_id'] = $current_product_id;
-			$sales_data['sale_price'] = $sale_price;
-			$result = $wpdb->insert(WP_ESTORE_DB_SALES_TABLE_NAME, $sales_data);
-
-			PayPal_Utils::log('Transaction data captured for PayPal subscription payment.', true);
-
-			//eStore's action after recurring payment product database update
-			do_action('eStore_product_database_updated_after_recurring_payment', $ipn_data, $cart_items);
-		}
 	}
 
 }

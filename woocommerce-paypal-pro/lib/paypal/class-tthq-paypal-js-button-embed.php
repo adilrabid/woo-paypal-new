@@ -12,6 +12,8 @@ class PayPal_JS_Button_Embed {
 	public $settings_args = array();
 	public $settings_args_subscription = array();
 
+	private $paypal_sdk_script_handler;
+
 	function __construct() {
 
 	}
@@ -29,20 +31,18 @@ class PayPal_JS_Button_Embed {
 	/*
 	Set the settings args that will be used to generate the PayPal JS SDK arguments.
 	 */
-	public function set_settings_args( $settings_args ) {
-		//Example settings args array
-		/*
-		$settings_args = array(
+	public function set_settings_args( $args ) {
+		//Default settings args array
+		$default_args = array(
 			'is_live_mode' => 0,
-			'live_client_id' => 'THE LIVE CLIENT ID',
-			'sandbox_client_id' => 'THE SANDBOX CLIENT ID',
+			'live_client_id' => '', // live client id
+			'sandbox_client_id' => '',// sandbox client id,
 			'currency' => 'USD',
-			'disable-funding' => '', //array('card', 'credit', 'venmo')
-			'intent' => 'capture', //'subscription' or 'capture'
-			'is_subscription' => 0, //1 for subscription buttons
+			'disable-funding' => '', // example array('card', 'credit', 'venmo')
+			'intent' => 'capture', // 'subscription' or 'capture'
+			'is_subscription' => 0, // 1 for subscription buttons
 		);
-		*/
-		$this->settings_args = $settings_args;
+		$this->settings_args = wp_parse_args( $args, $default_args );
 	}
 
 	/*
@@ -112,7 +112,27 @@ class PayPal_JS_Button_Embed {
 		return $sdk_args;
 	}
 
-	/**
+    /**
+     * Enqueues the PayPal JS SDK Script in the footer. This one loads the SDK with standard parameters, can be used for both buy_now and subscription type buttons.
+     */
+    public function enqueue_papal_sdk_script($handler, $args = true) {
+        $settings_args = $this->settings_args;
+        $sdk_args      = $this->generate_paypal_js_sdk_args( $settings_args );
+        $script_url    = add_query_arg( $sdk_args, 'https://www.paypal.com/sdk/js' );
+
+        wp_enqueue_script( $handler, esc_url( $script_url ), array(), null, $args );
+    }
+
+    public function register_papal_sdk_script($handler, $args = true) {
+        $settings_args = $this->settings_args;//The args are set before this function is called from the button's code.
+        $sdk_args = $this->generate_paypal_js_sdk_args($settings_args);
+
+        $script_url = add_query_arg( $sdk_args, 'https://www.paypal.com/sdk/js' );
+
+        wp_register_script( $handler, esc_url( $script_url ), null, null, $args );
+    }
+
+    /**
 	 * Load the PayPal JS SDK Script in the footer. This one loads the SDK with standard parameters (useful for one-time payments).
 	 * 
 	 * It will be called from the button's shortcode (using a hook) if at least one button is present on the page.
@@ -130,7 +150,7 @@ class PayPal_JS_Button_Embed {
 				script.type = 'text/javascript';
 				script.setAttribute( 'data-partner-attribution-id', 'TipsandTricks_SP_PPCP' );
 				script.async = true;
-				script.src = '<?php echo esc_url_raw( $script_url ); ?>';	
+				script.src = '<?php echo esc_url_raw( $script_url ); ?>';
 				script.onload = function () {
 					document.dispatchEvent(new Event('wcpprog_paypal_sdk_loaded'));//REPLACE: plugin prefix across different plugins.
 				};
@@ -189,7 +209,7 @@ class PayPal_JS_Button_Embed {
 		$sdk_args = $this->generate_paypal_js_sdk_args();
 		$script_url = add_query_arg( $sdk_args, 'https://www.paypal.com/sdk/js' );
 
-		$output = '<script src="' . esc_url_raw( $script_url ) . '" data-partner-attribution-id="TipsandTricks_SP_PPCP"></script>';
+		$output = '<script src="' . esc_url_raw( $script_url ) . '" data-partner-attribution-id="TipsandTricks_SP_PPCP"></script>'; // phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript
 		return $output;
 	}
 

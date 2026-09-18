@@ -53,8 +53,8 @@ class WC_PP_PRO_Utility {
 
 	static function is_valid_expiry($month, $year) {
 		$now		 = time();
-		$thisYear	 = (int) date('Y', $now);
-		$thisMonth	 = (int) date('m', $now);
+		$thisYear	 = (int) wp_date('Y', $now);
+		$thisMonth	 = (int) wp_date('m', $now);
 
 		if (is_numeric($year) && is_numeric($month)) {
 			$thisDate	 = mktime(0, 0, 0, $thisMonth, 1, $thisYear);
@@ -110,4 +110,25 @@ class WC_PP_PRO_Utility {
 			wc_get_logger()->debug('-----------------------', array('source' => 'woo_pp_pro'));
 		}
     }
+
+	public static function allowed_wc_order_attribution_fields(){
+		return array(
+			"source_type",
+			"referrer",
+			"utm_campaign",
+			"utm_source",
+			"utm_medium",
+			"utm_content",
+			"utm_id",
+			"utm_term",
+			"utm_source_platform",
+			"utm_creative_format",
+			"utm_marketing_tactic",
+			"session_entry",
+			"session_start_time",
+			"session_pages",
+			"session_count",
+			"user_agent",
+		);
+	}
 }

@@ -1,0 +1,61 @@
+{
+  "id": "WH-2UDT59703Y9208842-3JW9529UIT998002T",
+  "event_version": "1.0",
+  "create_time": "2026-09-16T05:17:20.796Z",
+  "resource_type": "refund",
+  "event_type": "PAYMENT.SALE.REFUNDED",
+  "summary": "A $ 5.5 USD sale payment was refunded",
+  "resource": {
+    "id": "2612278430845123Y",
+    "state": "completed",
+    "amount": {
+      "total": "5.50",
+      "currency": "USD"
+    },
+    "refund_from_received_amount": {
+      "value": "5.31",
+      "currency": "USD"
+    },
+    "refund_from_transaction_fee": {
+      "value": "0.19",
+      "currency": "USD"
+    },
+    "total_refunded_amount": {
+      "value": "5.50",
+      "currency": "USD"
+    },
+    "refund_to_payer": {
+      "value": "5.50",
+      "currency": "USD"
+    },
+    "invoice_number": "",
+    "sale_id": "8A788762AE1606804",
+    "create_time": "2026-09-16T05:17:16Z",
+    "update_time": "2026-09-16T05:17:16Z",
+    "links": [
+      {
+        "href": "https://api.sandbox.paypal.com/v1/payments/refund/2612278430845123Y",
+        "rel": "self",
+        "method": "GET"
+      },
+      {
+        "href": "https://api.sandbox.paypal.com/v1/payments/sale/8A788762AE1606804",
+        "rel": "sale",
+        "method": "GET"
+      }
+    ],
+    "refund_reason_code": "REFUND"
+  },
+  "links": [
+    {
+      "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-2UDT59703Y9208842-3JW9529UIT998002T",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-2UDT59703Y9208842-3JW9529UIT998002T/resend",
+      "rel": "resend",
+      "method": "POST"
+    }
+  ]
+}

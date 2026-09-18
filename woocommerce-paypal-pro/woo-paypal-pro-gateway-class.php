@@ -62,14 +62,15 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 
 	public function admin_options() {
 	?>
-		<h3><?php _e('PayPal Pro', 'woocommerce-paypal-pro-payment-gateway'); ?></h3>
-		<p><?php _e('Allows Credit Card Payments via the PayPal Pro gateway.', 'woocommerce-paypal-pro-payment-gateway'); ?></p>
+		<h3><?php esc_html_e('PayPal Pro', 'woocommerce-paypal-pro-payment-gateway'); ?></h3>
+		<p><?php esc_html_e('Allows Credit Card Payments via the PayPal Pro gateway.', 'woocommerce-paypal-pro-payment-gateway'); ?></p>
 
 		<?php 
         $pp_pro_doc_link = 'https://wp-ecommerce.net/paypal-pro-payment-gateway-for-woocommerce';
         $doc_link_html = '<a href="'.esc_url($pp_pro_doc_link).'" target="_blank">'.__( 'PayPal-Pro documentation', 'woocommerce-paypal-pro-payment-gateway').'</a>';
         echo '<p>';
-        echo sprintf(__( 'Please refer to the %s for setup instructions.', 'woocommerce-paypal-pro-payment-gateway'), $doc_link_html);
+        /* translators: %s: Link to the PayPal Pro documentation. */
+        echo wp_kses_post( sprintf(__( 'Please refer to the %s for setup instructions.', 'woocommerce-paypal-pro-payment-gateway'), $doc_link_html) );
         echo '</p>';		
 		?>
 		<table class="form-table">
@@ -111,19 +112,19 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 				'title'		 => __('PayPal Pro API Username', 'woocommerce-paypal-pro-payment-gateway'),
 				'type'		 => 'text',
 				'description'	 => __('Your PayPal payments pro API username.', 'woocommerce-paypal-pro-payment-gateway'),
-				'default'	 => __('', 'woocommerce-paypal-pro-payment-gateway')
+				'default'	 => ''
 			),
 			'paypalapipassword'	 => array(
 				'title'		 => __('PayPal Pro API Password', 'woocommerce-paypal-pro-payment-gateway'),
 				'type'		 => 'text',
 				'description'	 => __('Your PayPal payments pro API password.', 'woocommerce-paypal-pro-payment-gateway'),
-				'default'	 => __('', 'woocommerce-paypal-pro-payment-gateway')
+				'default'	 => ''
 			),
 			'paypalapisigniture'	 => array(
 				'title'		 => __('PayPal Pro API Signature', 'woocommerce-paypal-pro-payment-gateway'),
 				'type'		 => 'textarea',
 				'description'	 => __('Your PayPal payments pro API signature.', 'woocommerce-paypal-pro-payment-gateway'),
-				'default'	 => __('', 'woocommerce-paypal-pro-payment-gateway')
+				'default'	 => ''
 			),
 			'uniqueinvoiceprefix'	 => array(
 				'title'		 => __('Add Unique Invoice Prefix', 'woocommerce-paypal-pro-payment-gateway'),
@@ -187,11 +188,11 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 			$card_number_field_placeholder	 = __('Card Number', 'woocommerce-paypal-pro-payment-gateway');
 			$card_number_field_placeholder	 = apply_filters('wcpprog_card_number_field_placeholder', $card_number_field_placeholder);
 			?>
-			<label><?php _e('Card Number', 'woocommerce-paypal-pro-payment-gateway'); ?> <span class="required">*</span></label>
-			<input class="input-text" type="text" size="19" maxlength="19" name="billing_credircard" value="<?php echo $billing_credircard; ?>" placeholder="<?php echo $card_number_field_placeholder; ?>" />
+			<label><?php esc_html_e('Card Number', 'woocommerce-paypal-pro-payment-gateway'); ?> <span class="required">*</span></label>
+			<input class="input-text" type="text" size="19" maxlength="19" name="billing_credircard" value="<?php echo esc_attr( $billing_credircard ); ?>" placeholder="<?php echo esc_attr( $card_number_field_placeholder ); ?>" />
 		</p>
 		<p class="form-row form-row-first">
-			<label><?php _e('Card Type', 'woocommerce-paypal-pro-payment-gateway'); ?> <span class="required">*</span></label>
+			<label><?php esc_html_e('Card Type', 'woocommerce-paypal-pro-payment-gateway'); ?> <span class="required">*</span></label>
 			<select name="billing_cardtype">
 				<option value="Visa" selected="selected">Visa</option>
 				<option value="MasterCard">MasterCard</option>
@@ -201,23 +202,23 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 		</p>
 		<div class="clear"></div>
 		<p class="form-row form-row-first">
-			<label><?php _e('Expiration Date', 'woocommerce-paypal-pro-payment-gateway'); ?> <span class="required">*</span></label>
+			<label><?php esc_html_e('Expiration Date', 'woocommerce-paypal-pro-payment-gateway'); ?> <span class="required">*</span></label>
 			<select name="billing_expdatemonth">
 				<?php
 				$months = array("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12");
-				$current_month = date('n'); //This returns the current month without leading zero.
+				$current_month = wp_date('n'); //This returns the current month without leading zero.
 				foreach ($months as $key => $month) {
 					$is_selected = (intval($current_month) === ($key + 1)) ? 'selected' : '';
-					echo '<option value="' . ($key + 1) . '" ' . $is_selected . '>' . $month . '</option>';
+					echo '<option value="' . esc_attr( $key + 1 ) . '" ' . selected( intval($current_month), $key + 1, false ) . '>' . esc_html( $month ) . '</option>';
 				}
 				?>
 			</select>
 			<select name="billing_expdateyear">
 				<?php
-				$today = (int) date('Y', time());
+				$today = (int) wp_date('Y', time());
 				for ($i = 0; $i < 12; $i++) {
 				?>
-					<option value="<?php echo $today; ?>"><?php echo $today; ?></option>
+					<option value="<?php echo esc_attr( $today ); ?>"><?php echo esc_attr( $today ); ?></option>
 				<?php
 					$today++;
 				}
@@ -230,15 +231,15 @@ class WC_PP_PRO_Gateway extends WC_Payment_Gateway {
 			$cvv_field_placeholder = __('Card Verification Number (CVV)', 'woocommerce-paypal-pro-payment-gateway');
 			$cvv_field_placeholder = apply_filters('wcpprog_cvv_field_placeholder', $cvv_field_placeholder);
 			?>
-			<label><?php _e('Card Verification Number (CVV)', 'woocommerce-paypal-pro-payment-gateway'); ?> <span class="required">*</span></label>
-			<input class="input-text" type="text" size="4" maxlength="4" name="billing_ccvnumber" value="" placeholder="<?php echo $cvv_field_placeholder; ?>" />
+			<label><?php esc_html_e('Card Verification Number (CVV)', 'woocommerce-paypal-pro-payment-gateway'); ?> <span class="required">*</span></label>
+			<input class="input-text" type="text" size="4" maxlength="4" name="billing_ccvnumber" value="" placeholder="<?php echo esc_attr( $cvv_field_placeholder ); ?>" />
 		</p>
 		<?php
 		if ($this->securitycodehint) {
 			$cvv_hint_img = WC_PP_PRO_ADDON_URL . '/images/card-security-code-hint.png';
 			$cvv_hint_img = apply_filters('wcpprog_cvv_image_hint_src', $cvv_hint_img);
 			echo '<div class="wcppro-security-code-hint-section">';
-			echo '<img src="' . $cvv_hint_img . '" />';
+			echo '<img src="' . esc_url( $cvv_hint_img ) . '" />';
 			echo '</div>';
 		}
 		?>

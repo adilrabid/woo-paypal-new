@@ -196,6 +196,16 @@ class PayPal_Request_API_Injector {
                 ),
             );
 
+            // Checkout-specific overrides must not alter the shared product plan.
+            foreach ( array( 'plan', 'shipping_amount', 'subscriber', 'custom_id', 'quantity' ) as $key ) {
+                if ( isset( $data[ $key ] ) ) {
+                    $params[ $key ] = $data[ $key ];
+                }
+            }
+            if ( isset( $data['application_context'] ) ) {
+                $params['application_context'] = array_replace( $params['application_context'], $data['application_context'] );
+            }
+
             //Simple params (useulf for testing)
             // $params = array(
             //     'plan_id' => $plan_id
@@ -256,7 +266,7 @@ class PayPal_Request_API_Injector {
 
             //If end_time is not provided, then use the current time.
             if( empty($end_time) ){
-                $end_time = date('c');//Current time in ISO 8601 format (Example: 2024-02-27T03:28:34+00:00)
+                $end_time = wp_date('c');//Current time in ISO 8601 format (Example: 2024-02-27T03:28:34+00:00)
             }
 
             $params = array(

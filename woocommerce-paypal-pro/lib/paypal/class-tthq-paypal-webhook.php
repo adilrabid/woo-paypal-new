@@ -31,11 +31,13 @@ class PayPal_Webhook {
 	public function __construct() {
 		//Setup the PayPal API request object so that we can use it to make pre-made API requests easily.
 		$settings = PayPal_PPCP_Config::get_instance();
-		$this->live_client_id = $settings->get_value('paypal-live-client-id');
-		$this->live_secret = $settings->get_value('paypal-live-secret-key');    
-		$this->sandbox_client_id = $settings->get_value('paypal-sandbox-client-id');
-		$this->sandbox_secret = $settings->get_value('paypal-sandbox-secret-key');
-		$sandbox_enabled = $settings->get_value('enable-sandbox-testing');
+
+		$this->live_client_id = $settings->value('live_client_id');
+		$this->live_secret = $settings->value('live_client_secret');
+		$this->sandbox_client_id = $settings->value('sandbox_client_id');
+		$this->sandbox_secret = $settings->value('sandbox_client_secret');
+
+		$sandbox_enabled = $settings->value('sandbox_enabled');
 		$paypal_mode = $sandbox_enabled ? 'sandbox' : 'production';
 		$paypal_req_api = PayPal_Request_API::get_instance();
 		$paypal_req_api->set_mode_and_api_credentials( $paypal_mode, $this->live_client_id, $this->live_secret, $this->sandbox_client_id, $this->sandbox_secret );            
@@ -311,8 +313,10 @@ class PayPal_Webhook {
 				//No webhook exists in PayPal. Delete the webhook ID (if any) from our DB to clean it up (so it can be created again).
 				PayPal_Utils::delete_option( 'paypal_webhook_id_' . $this->mode );
 			} elseif ( $error_code === 'UNAUTHORIZED' ) {
+				/* translators: %s: PayPal environment (sandbox or live). */
 				$ret['msg'] = $response->get_error_message() . '. ' . sprintf( __( 'PayPal API Credential information is missing in settings. Please enter valid PayPal API Credentials in the General Settings tab for %s mode.', 'woocommerce-paypal-pro-payment-gateway' ), $this->mode );
 			} elseif ( $error_code === 'invalid_client' ) {
+				/* translators: %s: PayPal environment (sandbox or live). */
 				$ret['msg'] = sprintf( __( 'Invalid or Missing API Credentials! Check the plugin settings and enter valid API credentials in the PayPal Credentials section for %s mode.', 'woocommerce-paypal-pro-payment-gateway' ), $this->mode );
 			} else {
 				$ret['msg'] = $response->get_error_message();
@@ -458,19 +462,17 @@ class PayPal_Webhook {
 		return $action_result_msg;
 	}
 		
-		/**
+	/**
 	 * Check and create webhooks for both modes (live and sandbox).
-	 * This function is specfic to the plugin in question and how it plans to create the webhooks.
+	 * This function is specific to the plugin in question and how it plans to create the webhooks.
 	 */
 	public function check_and_delete_webhooks_for_both_modes() {
-		$delete_result = "";
+		$delete_result = array();
 		//First, handle the live/production mode webhook.
 		if( !empty($this->live_client_id) && !empty($this->live_secret) ){
 			$this->set_mode_and_api_creds_for_webhook( 'production', $this->live_client_id, $this->live_secret );
-			$ret = $this->check_and_delete_webhook();
+			$delete_result['live'] = $this->check_and_delete_webhook();
 			if( isset( $ret['msg']) ){
-				//Webhook delete action result.
-				$delete_result .= '<p><strong>Delete Live Webhook: </strong>' . $ret['msg'] . '</p>';
 				PayPal_Utils::log( 'Live Webhook delete action result: ' . $ret['msg'], true );
 			}
 		} else {
@@ -480,12 +482,10 @@ class PayPal_Webhook {
 		//Next, handle the sandbox mode webhook.
 		if( !empty($this->sandbox_client_id) && !empty($this->sandbox_secret) ){
 			$this->set_mode_and_api_creds_for_webhook( 'sandbox', $this->sandbox_client_id, $this->sandbox_secret );
-			$ret = $this->check_and_delete_webhook();
+			$delete_result['sandbox'] = $this->check_and_delete_webhook();
 			if( isset( $ret['msg']) ){
-				//Webhook delete action result.
-				$delete_result .= '<p><strong>Delete Sandbox Webhook: </strong>' . $ret['msg'] . '</p>';
 				PayPal_Utils::log( 'Sandbox Webhook delete action result: ' . $ret['msg'], true );
-			}			
+			}
 		} else {
 			//Sandbox mode credentials are not set. We will show a notice to the admin using admin_notice hook.
 		}
