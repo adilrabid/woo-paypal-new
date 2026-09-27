@@ -147,7 +147,7 @@ class WCPPROG_Subscription_Order_Handler {
 		if ( ! $order || self::ORDER_TYPE !== $order->get_type() ) {
 			return;
 		}
-		add_meta_box( 'wcpprog-payment-history', __( 'Received Payments', 'woocommerce-paypal-pro-payment-gateway' ), array( $this, 'render_payment_history_meta_box' ), get_current_screen()->id, 'normal', 'default' );
+		add_meta_box( 'wcpprog-payment-history', __( 'Received Payments', 'woocommerce-paypal-pro-payment-gateway' ), array( $this, 'render_payment_history_meta_box' ), get_current_screen()->id, 'normal', 'high' );
 	}
 
     public function render_payment_history_meta_box( $object ) {

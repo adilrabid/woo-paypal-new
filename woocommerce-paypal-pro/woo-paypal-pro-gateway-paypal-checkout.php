@@ -484,7 +484,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         $mode = $this->sandbox ? 'sandbox' : 'live';
         $wh_id = PayPal_Utils::get_option( 'paypal_webhook_id_' . $mode );
         if (empty($wh_id)) {
-            return esc_html__('Webhooks are not configured!', 'woocommerce-paypal-pro-payment-gateway');
+            return esc_html__('Webhooks for PayPal checkout is not configured! Please go to the webhooks tab in payment settings and create the webhook.', 'woocommerce-paypal-pro-payment-gateway');
         }
 
         return '';
