@@ -85,8 +85,9 @@ class PayPal_Button_Sub_Ajax_Handler {
 
 	    $sub_product_id = $sub_product->get_id();
 
-		$this->read_checkout_customer_data();
 		try {
+			$this->read_checkout_customer_data();
+			$this->validate_subscription_checkout( $cart );
 			$subscription_data = $this->get_checkout_subscription_data( $cart, $sub_product );
 		} catch ( \InvalidArgumentException $error ) {
 			PayPal_Utils::log( 'Subscription checkout validation: ' . $error->getMessage(), false );
@@ -268,6 +269,64 @@ class PayPal_Button_Sub_Ajax_Handler {
 		PayPal_Utils::log( 'Subscription checkout totals (including tax, shipping, fees and discounts).', true );
 		PayPal_Utils::log_array( array( 'initial' => $money( $initial_total ), 'recurring' => $money( $recurring_total ), 'trial' => $has_trial ), true );
 		return $data;
+	}
+
+	/** Validate the custom AJAX checkout before creating anything in PayPal. */
+	private function validate_subscription_checkout( $cart ) {
+		$items = $cart->get_cart();
+		$item = reset( $items );
+		if ( count( $items ) !== 1 || ! $item || (float) $item['quantity'] !== 1.0
+			|| ! $item['data'] instanceof \WCPPROG_Subscription_Product ) {
+			throw new \InvalidArgumentException( __( 'Please check out with one subscription and a quantity of one, without other products.', 'woocommerce-paypal-pro-payment-gateway' ) );
+		}
+		if ( ! $item['data']->is_purchasable() || ! $this->wc_paypal_ppcp->is_available() ) {
+			throw new \InvalidArgumentException( __( 'This subscription is not available for checkout.', 'woocommerce-paypal-pro-payment-gateway' ) );
+		}
+		$webhook_notice = $this->wc_paypal_ppcp->webhook_missing_notice();
+		if ( $webhook_notice ) {
+			throw new \InvalidArgumentException( $webhook_notice );
+		}
+
+		foreach ( array( 'billing', 'shipping' ) as $type ) {
+			if ( 'shipping' === $type && ! $cart->needs_shipping() ) {
+				continue;
+			}
+			$country = $this->checkout_customer_data[ $type . '_country' ] ?? '';
+			$allowed = 'shipping' === $type ? WC()->countries->get_shipping_countries() : WC()->countries->get_allowed_countries();
+			if ( ! isset( $allowed[ $country ] ) ) {
+				throw new \InvalidArgumentException( __( 'Please select an allowed billing and shipping country.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			}
+			foreach ( WC()->countries->get_address_fields( $country, $type . '_' ) as $key => $field ) {
+				$value = $this->checkout_customer_data[ $key ] ?? '';
+				if ( ! empty( $field['required'] ) && '' === trim( $value ) ) {
+					/* translators: %s: Checkout field label. */
+					throw new \InvalidArgumentException( sprintf( __( '%s is required before subscribing.', 'woocommerce-paypal-pro-payment-gateway' ), wp_strip_all_tags( $field['label'] ?? $key ) ) );
+				}
+				if ( '' === $value ) {
+					continue;
+				}
+				$validation = $field['validate'] ?? array();
+				if ( in_array( 'postcode', $validation, true ) && ! \WC_Validation::is_postcode( $value, $country )
+					|| in_array( 'phone', $validation, true ) && ! \WC_Validation::is_phone( $value )
+					|| in_array( 'email', $validation, true ) && ! is_email( $value ) ) {
+					throw new \InvalidArgumentException( __( 'Please enter valid checkout contact and address details.', 'woocommerce-paypal-pro-payment-gateway' ) );
+				}
+			}
+			$states = WC()->countries->get_states( $country );
+			$state = $this->checkout_customer_data[ $type . '_state' ] ?? '';
+			if ( $state && is_array( $states ) && $states && ! isset( $states[ $state ] ) ) {
+				throw new \InvalidArgumentException( __( 'Please select a valid state for your country.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			}
+		}
+
+		$cart->check_cart_items();
+		$cart->check_cart_coupons();
+		$cart->check_customer_coupons( $this->checkout_customer_data );
+		if ( wc_notice_count( 'error' ) ) {
+			$errors = wc_get_notices( 'error' );
+			wc_clear_notices();
+			throw new \InvalidArgumentException( wp_strip_all_tags( implode( ' ', array_column( $errors, 'notice' ) ) ) );
+		}
 	}
 
 	/**

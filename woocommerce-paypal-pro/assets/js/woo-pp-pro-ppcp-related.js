@@ -278,11 +278,16 @@ function woo_pp_pro_render_ppcp_btn(render_to) {
     const buttonType = wc_paypal_checkout_params.btn_type || 'buy_now';
     let button;
     if (buttonType === 'subscription'){
-        if (wc_paypal_checkout_params.webhook_missing_notice.trim().length){
+        const missingNotice = (wc_paypal_checkout_params.webhook_missing_notice || '').trim();
+        const container = typeof render_to === 'string' ? document.querySelector(render_to) : render_to;
+        container?.querySelector('.wcpprog-webhook-notice')?.remove();
+        if (missingNotice){
             const notice = document.createElement('div');
+            notice.className = 'wcpprog-webhook-notice';
+            notice.setAttribute('role', 'alert');
             notice.style.color = '#cc0000';
-            notice.textContent = wc_paypal_checkout_params.webhook_missing_notice.trim();
-            document.querySelector(render_to).appendChild(notice);
+            notice.textContent = missingNotice;
+            container?.appendChild(notice);
 
             return;
         }

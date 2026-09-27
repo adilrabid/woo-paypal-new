@@ -469,7 +469,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'capture_order_ajax_action' => PayPal_Utils::auto_prefix('pp_capture_order'),
             'create_sub_order_ajax_action' => PayPal_Utils::auto_prefix('sub_pp_create_subscription'),
             'onapprove_sub_order_ajax_action' => PayPal_Utils::auto_prefix('sub_onapprove_process_subscription'),
-            'webhook_missing_notice' => esc_js($this->webhook_missing_notice()),
+            'webhook_missing_notice' => $this->webhook_missing_notice(),
             'btn_type'    => esc_js($paypal_button_type),
             'currency'    => get_woocommerce_currency(),
             'total'       => WC()->cart ? WC()->cart->get_total('raw') : 0,
@@ -481,10 +481,10 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             return '';
         }
 
-        $mode = $this->sandbox ? 'sandbox' : 'live';
+        $mode = $this->sandbox ? 'sandbox' : 'production';
         $wh_id = PayPal_Utils::get_option( 'paypal_webhook_id_' . $mode );
         if (empty($wh_id)) {
-            return esc_html__('Webhooks for PayPal checkout is not configured! Please go to the webhooks tab in payment settings and create the webhook.', 'woocommerce-paypal-pro-payment-gateway');
+            return __('Webhooks for PayPal Checkout are not configured. Please go to the Webhooks tab in payment settings and create the webhook.', 'woocommerce-paypal-pro-payment-gateway');
         }
 
         return '';
