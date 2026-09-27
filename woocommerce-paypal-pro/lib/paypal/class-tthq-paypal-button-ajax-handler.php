@@ -59,9 +59,24 @@ class PayPal_Button_Ajax_Handler {
 		}
 
 		$this->wc_paypal_ppcp = $wc_paypal_ppcp;
+		if ( ! WC()->cart || WC()->cart->is_empty() ) {
+			wp_send_json_error( array( 'message' => __( 'Your cart is empty. Please refresh checkout.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+		}
+		WC()->cart->calculate_totals();
+		$fingerprint = PayPal_Checkout_Attempt::fingerprint( $wc_paypal_ppcp );
+		$previous_order = PayPal_Checkout_Attempt::get_order( 'payment', $fingerprint );
+		if ( $previous_order ) {
+			$approval_id = PayPal_Checkout_Attempt::get_approval_id( $previous_order, 'payment' );
+			if ( is_wp_error( $approval_id ) ) {
+				wp_send_json_error( array( 'message' => $approval_id->get_error_message() ) );
+			}
+			if ( $approval_id ) {
+				wp_send_json_success( array( 'order_id' => $approval_id, 'wc_order_id' => $previous_order->get_id() ) );
+			}
+		}
 
         // Create WooCommerce order from current cart
-        $wc_order = $this->create_wc_order_from_cart();
+        $wc_order = $this->create_wc_order_from_cart( $fingerprint );
 
         if (! $wc_order) {
             wp_send_json_error(array('message' => 'Failed to create order'));
@@ -106,6 +121,9 @@ class PayPal_Button_Ajax_Handler {
 			//Failed to create the order.
             wp_send_json_error(array('message' => 'Failed to create PayPal order'));
 		}
+		if ( empty( $paypal_order_id ) ) {
+			wp_send_json_error( array( 'message' => __( 'Failed to create PayPal order. Please try again.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+		}
 
         // Store PayPal order ID in WC order meta
         $wc_order->update_meta_data('_paypal_order_id', $paypal_order_id);
@@ -123,7 +141,7 @@ class PayPal_Button_Ajax_Handler {
 	/**
      * Create WooCommerce order from current cart
      */
-    private function create_wc_order_from_cart() {
+    private function create_wc_order_from_cart( $fingerprint ) {
         try {
             // Create order from cart
             $checkout = WC()->checkout();
@@ -143,7 +161,7 @@ class PayPal_Button_Ajax_Handler {
             }
 
             // Create the order
-            $order_id = $checkout->create_order($data);
+            $order_id = PayPal_Checkout_Attempt::create_order( $data, 'payment', $fingerprint );
 
             if (is_wp_error($order_id)) {
                 return false;
@@ -159,6 +177,7 @@ class PayPal_Button_Ajax_Handler {
             $order->update_status('pending', __('PayPal Checkout payment pending.', 'woocommerce-paypal-pro-payment-gateway'));
 
             $order->save();
+			PayPal_Checkout_Attempt::remember( $order, 'payment', $fingerprint );
 
             return $order;
         } catch (\Exception $e) {

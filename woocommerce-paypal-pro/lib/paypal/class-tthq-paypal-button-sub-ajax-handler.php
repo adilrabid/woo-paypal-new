@@ -108,6 +108,18 @@ class PayPal_Button_Sub_Ajax_Handler {
         }
 
         $plan_id = isset($plan['plan_id']) ? sanitize_text_field($plan['plan_id']) : '';
+		$fingerprint = PayPal_Checkout_Attempt::fingerprint( $wc_paypal_ppcp, array( $plan_id, $subscription_data, $this->checkout_customer_data ) );
+		$previous_order = PayPal_Checkout_Attempt::get_order( 'subscription', $fingerprint );
+		if ( $previous_order ) {
+			$approval_id = PayPal_Checkout_Attempt::get_approval_id( $previous_order, 'subscription' );
+			if ( is_wp_error( $approval_id ) ) {
+				wp_send_json_error( array( 'message' => $approval_id->get_error_message() ) );
+			}
+			if ( $approval_id ) {
+				WC()->session->set( 'wcpprog_subscription_approval_order', $previous_order->get_id() );
+				wp_send_json_success( array( 'subscription_id' => $approval_id ) );
+			}
+		}
 
 	    /*
 		 * Create the subscription on PayPal
@@ -169,7 +181,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 		//Uncomment the following line to see more details of the subscription data.
 		//PayPal_Utils::log_array( $sub_data, true );
 
-		$wc_order = $this->create_wc_order_from_cart();
+		$wc_order = $this->create_wc_order_from_cart( $fingerprint );
 	    if ( empty($wc_order)) {
 		    wp_send_json_error(array('message' => 'Failed to create order'));
 	    }
@@ -190,6 +202,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 		}
 
 	    $wc_order->save();
+		PayPal_Checkout_Attempt::remember( $wc_order, 'subscription', $fingerprint );
 
 	    //If everything is processed successfully, send the success response.
 		wp_send_json_success( array(
@@ -361,7 +374,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 	/**
 	 * Create WooCommerce order from current cart
 	 */
-	private function create_wc_order_from_cart() {
+	private function create_wc_order_from_cart( $fingerprint ) {
 		try {
 			// Create order from cart
 			$checkout = WC()->checkout();
@@ -371,7 +384,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 			$data['ship_to_different_address'] = 1;
 
 			// Create the order
-			$order_id = $checkout->create_order($data);
+			$order_id = PayPal_Checkout_Attempt::create_order( $data, 'subscription', $fingerprint );
 
 			if (is_wp_error($order_id)) {
 				return false;

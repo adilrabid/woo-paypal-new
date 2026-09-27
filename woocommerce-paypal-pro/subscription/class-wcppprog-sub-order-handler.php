@@ -304,7 +304,7 @@ class WCPPROG_Subscription_Order_Handler {
 				wp_send_json_error( array( 'message' => __( 'PayPal could not cancel the subscription. Please check the debug log and try again.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
 			}
 			$order->update_meta_data( '_paypal_subscription_status', 'CANCELLED' );
-			$order->update_status( 'wcpprog-cancelled', __( 'Subscription cancelled in PayPal by an administrator.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			$order->update_status( 'wcpprog-cancelled', __( 'Subscription cancelled in PayPal.', 'woocommerce-paypal-pro-payment-gateway' ) );
 			PayPal_Utils::log( 'Admin cancellation completed for subscription order #' . $id, true );
 			wp_send_json_success();
 		} catch ( Throwable $error ) {

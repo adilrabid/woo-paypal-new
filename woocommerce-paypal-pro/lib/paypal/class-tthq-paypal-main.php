@@ -21,6 +21,7 @@ include_once( 'class-tthq-paypal-utils.php' );//Misc project specific utility fu
 include_once( 'class-tthq-paypal-utils-ipn-related.php' );//Misc IPN related utility functions.
 include_once( 'class-tthq-paypal-cache.php' );
 include_once( 'class-tthq-paypal-bearer.php' );
+include_once( 'class-tthq-paypal-checkout-attempt.php' );
 include_once( 'class-tthq-paypal-button-ajax-handler.php' );
 include_once( 'class-tthq-paypal-button-sub-ajax-handler.php' );
 include_once( 'class-tthq-paypal-acdc-related.php' );
