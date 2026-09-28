@@ -71,6 +71,8 @@ namespace {
         public function get_id() { return 10; }
         public function get_meta($key, $single) { return ''; }
         public function get_customer_id() { return 1; }
+        public function get_payment_method() { return 'paypal_checkout'; }
+        public function get_payment_method_title() { return 'My Custom Gateway'; }
         public function get_currency() { return 'EUR'; }
         public function get_prices_include_tax() { return true; }
         public function get_cart_tax() { return '9.50'; }
@@ -86,6 +88,7 @@ namespace {
     $subscription = WCPPROG_WC_Subscription_Order::$last;
     check(count($subscription->items) === 5, 'All monetary item types must reach the subscription');
     check($subscription->values['set_currency'] === 'EUR', 'Preserve order currency');
+    check($subscription->values['set_payment_method'] === 'paypal_checkout' && $subscription->values['set_payment_method_title'] === 'My Custom Gateway', 'Preserve configured payment method on subscription');
     check($subscription->values['set_prices_include_tax'] === true, 'Preserve inclusive tax display');
     check($subscription->values['set_cart_tax'] === '9.50' && $subscription->values['set_shipping_tax'] === '0.80', 'Preserve tax totals used by WooCommerce total calculation');
     check($subscription->calculated === false, 'Recalculate totals without changing historical tax rates');

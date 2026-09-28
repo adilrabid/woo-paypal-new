@@ -13,6 +13,8 @@ class WCPPROG_Subscription_Order_Handler {
 	const ORDER_TYPE = 'wcpprog_sub_order';
 
 	public function __construct() {
+		require_once WC_PP_PRO_ADDON_PATH . '/subscription/class-wcpprog-sub-payment-history.php';
+		WCPPROG_Subscription_Payment_History::init();
 		add_action( 'init', array( $this, 'register_order_type' ) );
 
         add_action( 'init', array( $this, 'register_statuses' ) );
@@ -27,7 +29,60 @@ class WCPPROG_Subscription_Order_Handler {
 		add_action( 'manage_' . self::ORDER_TYPE . '_posts_custom_column', array( $this, 'render_subscription_id_column' ), 10, 2 );
 		add_filter( 'manage_woocommerce_page_wc-orders--' . self::ORDER_TYPE . '_columns', array( $this, 'add_subscription_id_column' ) );
 		add_action( 'manage_woocommerce_page_wc-orders--' . self::ORDER_TYPE . '_custom_column', array( $this, 'render_subscription_id_column' ), 10, 2 );
+		add_filter( 'woocommerce_order_actions', array( $this, 'subscription_order_actions' ), 20, 2 );
+		add_action( 'woocommerce_order_action_wcpprog_send_subscription_information', array( $this, 'send_subscription_information' ) );
 
+	}
+
+	public function subscription_order_actions( $actions, $order = null ) {
+		if ( ! $order instanceof WC_Order || self::ORDER_TYPE !== $order->get_type() ) {
+			return $actions;
+		}
+		return array(
+			'wcpprog_send_subscription_information' => __( 'Send subscription information to customer', 'woocommerce-paypal-pro-payment-gateway' ),
+		);
+	}
+
+	/** Invoked by WooCommerce's nonce-protected order actions form. */
+	public function send_subscription_information( $order ) {
+		if ( ! $order instanceof WC_Order || self::ORDER_TYPE !== $order->get_type()
+			|| ! current_user_can( 'edit_shop_order', $order->get_id() ) ) {
+			return;
+		}
+		$recipient = $order->get_billing_email();
+		if ( ! is_email( $recipient ) ) {
+			$this->subscription_email_error( $order, __( 'Subscription information was not sent: the customer billing email is missing or invalid.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			return;
+		}
+
+		try {
+			$mailer = WC()->mailer();
+			$message = wc_get_template_html(
+				'emails/wcpprog-subscription-information.php',
+				array( 'order' => $order ),
+				'',
+				WC_PP_PRO_ADDON_PATH . '/templates/'
+			);
+			/* translators: 1: Store name, 2: Subscription order number. */
+			$subject = sprintf( __( '[%1$s] Subscription #%2$s information', 'woocommerce-paypal-pro-payment-gateway' ), wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ), $order->get_order_number() );
+			$sent = $mailer->send( $recipient, $subject, $mailer->wrap_message( __( 'Your subscription information', 'woocommerce-paypal-pro-payment-gateway' ), $message ) );
+			if ( ! $sent ) {
+				$this->subscription_email_error( $order, __( 'Subscription information could not be sent. Please check your email configuration and try again.', 'woocommerce-paypal-pro-payment-gateway' ) );
+				return;
+			}
+			/* translators: %s: Customer email address. */
+			$order->add_order_note( sprintf( __( 'Subscription information email sent to %s.', 'woocommerce-paypal-pro-payment-gateway' ), $recipient ), false, true );
+		} catch ( Throwable $error ) {
+			PayPal_Utils::log( 'Subscription information email failed for order #' . $order->get_id() . ': ' . $error->getMessage(), false );
+			$this->subscription_email_error( $order, __( 'Subscription information could not be sent. Please check your email configuration and try again.', 'woocommerce-paypal-pro-payment-gateway' ) );
+		}
+	}
+
+	private function subscription_email_error( $order, $message ) {
+		$order->add_order_note( $message, false, true );
+		if ( class_exists( 'WC_Admin_Meta_Boxes' ) ) {
+			WC_Admin_Meta_Boxes::add_error( $message );
+		}
 	}
 
 	public function add_subscription_id_column( $columns ) {
@@ -152,38 +207,19 @@ class WCPPROG_Subscription_Order_Handler {
 
     public function render_payment_history_meta_box( $object ) {
         $subscription = $object instanceof WC_Order ? $object : wc_get_order( $object->ID );
+        self::render_payment_history_table( $subscription );
+    }
+
+    /** Shared payment history for the admin metabox and customer email. */
+    public static function render_payment_history_table( $subscription, $email = false ) {
         if ( ! $subscription || self::ORDER_TYPE !== $subscription->get_type() ) {
             return;
         }
-        $parent_id = $subscription->get_parent_order_id_ref();
-        // Include both stored links and orders linked back to this subscription.
-        $ids = array_merge( array( $parent_id ), $subscription->get_related_order_ids(), wc_get_orders( array(
-                'type' => 'shop_order',
-                'limit' => -1,
-                'return' => 'ids',
-                'meta_key' => '_wcpprog_subscription_order_id',
-                'meta_value' => $subscription->get_id(),
-        ) ) );
-        $payments = array();
-        foreach ( array_unique( array_filter( array_map( 'absint', $ids ) ) ) as $id ) {
-            $order = wc_get_order( $id );
-            if ( ! $order || 'shop_order' !== $order->get_type() || (float) $order->get_total() <= 0 ) {
-                continue;
-            }
-            if ( ! $order->get_date_paid() && ! $order->is_paid() && ! $order->get_total_refunded() ) {
-                continue;
-            }
-            $payments[] = $order;
-        }
+        $payments = WCPPROG_Subscription_Payment_History::get_rows( $subscription );
         if ( ! $payments ) {
             echo '<p>' . esc_html__( 'No received payments have been recorded yet.', 'woocommerce-paypal-pro-payment-gateway' ) . '</p>';
             return;
         }
-        usort( $payments, static function ( $a, $b ) {
-            $a_date = $a->get_date_paid() ?: $a->get_date_created();
-            $b_date = $b->get_date_paid() ?: $b->get_date_created();
-            return ( $b_date ? $b_date->getTimestamp() : 0 ) <=> ( $a_date ? $a_date->getTimestamp() : 0 );
-        } );
 
         $cols = array(
                 __( 'Order', 'woocommerce-paypal-pro-payment-gateway' ),
@@ -196,32 +232,34 @@ class WCPPROG_Subscription_Order_Handler {
                 __( 'Refunds', 'woocommerce-paypal-pro-payment-gateway' )
         );
 
-        echo '<div style="overflow-x:auto"><table class="widefat striped"><thead><tr>';
+        echo $email
+            ? '<div style="overflow-x:auto"><table cellspacing="0" cellpadding="8" border="1" style="width:100%; border-collapse:collapse;"><thead><tr>'
+            : '<div style="overflow-x:auto"><table class="widefat striped"><thead><tr>';
         foreach ( $cols as $col ) {
             echo '<th scope="col">' . esc_html( $col ) . '</th>';
         }
         echo '</tr></thead><tbody>';
         foreach ( $payments as $payment ) {
-            $date        = $payment->get_date_paid();
-            $transaction = $payment->get_transaction_id() ?: $payment->get_meta( '_paypal_transaction_id', true );
-            echo '<tr><td><a href="' . esc_url( $payment->get_edit_order_url() ) . '">#' . esc_html( $payment->get_order_number() ) . '</a></td>';
-            echo '<td>' . esc_html( $payment->get_id() === $parent_id ? __( 'Initial Payment', 'woocommerce-paypal-pro-payment-gateway' ) : __( 'Recurring Payment', 'woocommerce-paypal-pro-payment-gateway' ) ) . '</td>';
-            echo '<td>' . esc_html( $date ? wc_format_datetime( $date, wc_date_format() . ' ' . wc_time_format() ) : '—' ) . '</td>';
-            echo '<td>' . esc_html( wc_get_order_status_name( $payment->get_status() ) ) . '</td><td>' . esc_html( $payment->get_payment_method_title() ) . '</td>';
-            echo '<td>' . esc_html( $transaction ?: '—' ) . '</td><td>' . wp_kses_post( wc_price( $payment->get_total(), array( 'currency' => $payment->get_currency() ) ) ) . ' ' . esc_html( $payment->get_currency() ) . '</td><td>';
+            echo '<tr><td>';
+            if ( $email || ! $payment['edit_url'] ) {
+                echo '#' . esc_html( $payment['order_number'] );
+            } else {
+                echo '<a href="' . esc_url( $payment['edit_url'] ) . '">#' . esc_html( $payment['order_number'] ) . '</a>';
+            }
+            echo '</td>';
+            echo '<td>' . esc_html( $payment['initial'] ? __( 'Initial Payment', 'woocommerce-paypal-pro-payment-gateway' ) : __( 'Recurring Payment', 'woocommerce-paypal-pro-payment-gateway' ) ) . '</td>';
+            echo '<td>' . esc_html( WCPPROG_Subscription_Payment_History::format_date( $payment['date'] ) ) . '</td>';
+            echo '<td>' . esc_html( wc_get_order_status_name( $payment['status'] ) ) . '</td><td>' . esc_html( $payment['payment_method'] ) . '</td>';
+            echo '<td>' . esc_html( $payment['transaction_id'] ?: '—' ) . '</td><td>' . wp_kses_post( wc_price( $payment['amount'], array( 'currency' => $payment['currency'] ) ) ) . ' ' . esc_html( $payment['currency'] ) . '</td><td>';
 
-            $refunds = $payment->get_refunds();
-            if ( ! empty($refunds) ) {
-                foreach ( $refunds as $refund ) {
-                    $refund_date = $refund->get_date_created();
-                    $refund_date = $refund_date ? wc_format_datetime( $refund_date, wc_date_format() . ' ' . wc_time_format() ) : '—';
-
-                    $refund_id   = $refund->get_meta( '_wcppprog_paypal_refund_id', true ) ?: $refund->get_transaction_id();
-                    $refund_id   = $refund_id ?: '#' . $refund->get_id();
-
-                    $refund_price_amount = wc_price( $refund->get_amount(), array( 'currency' => $payment->get_currency() ) );
+            if ( $payment['refunds'] ) {
+                foreach ( $payment['refunds'] as $refund ) {
                     /* translators: 1: Formatted refund amount, 2: Refund date, 3: Refund ID. */
-                    echo wp_kses_post( sprintf(__('Amount of %1$s refunded on %2$s. Refund id: %3$s', 'woocommerce-paypal-pro-payment-gateway'), $refund_price_amount, $refund_date, $refund_id ) );
+                    echo '<div>' . wp_kses_post( sprintf( __( 'Amount of %1$s refunded on %2$s. Refund id: %3$s', 'woocommerce-paypal-pro-payment-gateway' ),
+                        wc_price( $refund['amount'], array( 'currency' => $payment['currency'] ) ),
+                        esc_html( WCPPROG_Subscription_Payment_History::format_date( $refund['date'] ) ),
+                        esc_html( $refund['id'] )
+                    ) ) . '</div>';
                 }
             } else {
                 echo '-';
@@ -237,10 +275,10 @@ class WCPPROG_Subscription_Order_Handler {
 		if ( ! $this->can_cancel_subscription( $order ) || ! current_user_can( 'edit_shop_order', $order->get_id() ) ) {
 			return;
 		}
-		add_meta_box( 'wcpprog-subscription-cancel', __( 'Cancel subscription', 'woocommerce-paypal-pro-payment-gateway' ), array( $this, 'render_cancellation_meta_box' ), get_current_screen()->id, 'side', 'default' );
+		add_meta_box( 'wcpprog-subscription-manage', __( 'Manage subscription', 'woocommerce-paypal-pro-payment-gateway' ), array( $this, 'render_subscription_manage_meta_box' ), get_current_screen()->id, 'side', 'default' );
 	}
 
-	public function render_cancellation_meta_box( $object ) {
+	public function render_subscription_manage_meta_box( $object ) {
 		$order = $object instanceof WC_Order ? $object : wc_get_order( $object->ID );
 		if ( ! $this->can_cancel_subscription( $order ) ) {
 			return;

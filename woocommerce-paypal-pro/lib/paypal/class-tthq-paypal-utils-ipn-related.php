@@ -282,6 +282,8 @@ class PayPal_Utility_IPN_Related {
 				$subscription_order = new \WCPPROG_WC_Subscription_Order();
 
 				$subscription_order->set_customer_id( $order->get_customer_id() );
+				$subscription_order->set_payment_method( $order->get_payment_method() );
+				$subscription_order->set_payment_method_title( $order->get_payment_method_title() );
 				$subscription_order->set_currency( $order->get_currency() );
 				$subscription_order->set_prices_include_tax( $order->get_prices_include_tax() );
 				$subscription_order->set_cart_tax( $order->get_cart_tax() );

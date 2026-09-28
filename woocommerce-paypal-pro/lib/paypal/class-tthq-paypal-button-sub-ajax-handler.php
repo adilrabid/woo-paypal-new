@@ -376,9 +376,6 @@ class PayPal_Button_Sub_Ajax_Handler {
 	 */
 	private function create_wc_order_from_cart( $fingerprint ) {
 		try {
-			// Create order from cart
-			$checkout = WC()->checkout();
-
 			// Get posted data
 			$data = $this->checkout_customer_data;
 			$data['ship_to_different_address'] = 1;

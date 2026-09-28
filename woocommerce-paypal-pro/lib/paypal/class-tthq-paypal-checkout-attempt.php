@@ -25,6 +25,7 @@ class PayPal_Checkout_Attempt {
 			|| 'paypal_checkout' !== $order->get_payment_method()
 			|| (int) $order->get_customer_id() !== get_current_user_id()
 			|| ! $order->has_status( 'pending' ) || $order->get_date_paid() || $order->get_transaction_id()
+			|| $order->get_meta( '_paypal_transaction_id', true )
 			|| $order->get_meta( '_wcpprog_subscription_order_id', true )
 			|| $fingerprint !== $order->get_meta( '_wcpprog_checkout_fingerprint', true ) ) {
 			return false;

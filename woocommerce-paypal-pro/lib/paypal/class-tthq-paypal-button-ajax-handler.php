@@ -143,9 +143,6 @@ class PayPal_Button_Ajax_Handler {
      */
     private function create_wc_order_from_cart( $fingerprint ) {
         try {
-            // Create order from cart
-            $checkout = WC()->checkout();
-
             // Get posted data
             $data = array();
             if (is_user_logged_in()) {
