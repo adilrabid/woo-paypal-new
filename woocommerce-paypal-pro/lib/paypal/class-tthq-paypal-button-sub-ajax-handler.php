@@ -85,8 +85,9 @@ class PayPal_Button_Sub_Ajax_Handler {
 
 	    $sub_product_id = $sub_product->get_id();
 
-		$this->read_checkout_customer_data();
 		try {
+			$this->read_checkout_customer_data();
+			$this->validate_subscription_checkout( $cart );
 			$subscription_data = $this->get_checkout_subscription_data( $cart, $sub_product );
 		} catch ( \InvalidArgumentException $error ) {
 			PayPal_Utils::log( 'Subscription checkout validation: ' . $error->getMessage(), false );
@@ -107,6 +108,18 @@ class PayPal_Button_Sub_Ajax_Handler {
         }
 
         $plan_id = isset($plan['plan_id']) ? sanitize_text_field($plan['plan_id']) : '';
+		$fingerprint = PayPal_Checkout_Attempt::fingerprint( $wc_paypal_ppcp, array( $plan_id, $subscription_data, $this->checkout_customer_data ) );
+		$previous_order = PayPal_Checkout_Attempt::get_order( 'subscription', $fingerprint );
+		if ( $previous_order ) {
+			$approval_id = PayPal_Checkout_Attempt::get_approval_id( $previous_order, 'subscription' );
+			if ( is_wp_error( $approval_id ) ) {
+				wp_send_json_error( array( 'message' => $approval_id->get_error_message() ) );
+			}
+			if ( $approval_id ) {
+				WC()->session->set( 'wcpprog_subscription_approval_order', $previous_order->get_id() );
+				wp_send_json_success( array( 'subscription_id' => $approval_id ) );
+			}
+		}
 
 	    /*
 		 * Create the subscription on PayPal
@@ -168,7 +181,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 		//Uncomment the following line to see more details of the subscription data.
 		//PayPal_Utils::log_array( $sub_data, true );
 
-		$wc_order = $this->create_wc_order_from_cart();
+		$wc_order = $this->create_wc_order_from_cart( $fingerprint );
 	    if ( empty($wc_order)) {
 		    wp_send_json_error(array('message' => 'Failed to create order'));
 	    }
@@ -189,6 +202,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 		}
 
 	    $wc_order->save();
+		PayPal_Checkout_Attempt::remember( $wc_order, 'subscription', $fingerprint );
 
 	    //If everything is processed successfully, send the success response.
 		wp_send_json_success( array(
@@ -270,6 +284,64 @@ class PayPal_Button_Sub_Ajax_Handler {
 		return $data;
 	}
 
+	/** Validate the custom AJAX checkout before creating anything in PayPal. */
+	private function validate_subscription_checkout( $cart ) {
+		$items = $cart->get_cart();
+		$item = reset( $items );
+		if ( count( $items ) !== 1 || ! $item || (float) $item['quantity'] !== 1.0
+			|| ! $item['data'] instanceof \WCPPROG_Subscription_Product ) {
+			throw new \InvalidArgumentException( __( 'Please check out with one subscription and a quantity of one, without other products.', 'woocommerce-paypal-pro-payment-gateway' ) );
+		}
+		if ( ! $item['data']->is_purchasable() || ! $this->wc_paypal_ppcp->is_available() ) {
+			throw new \InvalidArgumentException( __( 'This subscription is not available for checkout.', 'woocommerce-paypal-pro-payment-gateway' ) );
+		}
+		$webhook_notice = $this->wc_paypal_ppcp->webhook_missing_notice();
+		if ( $webhook_notice ) {
+			throw new \InvalidArgumentException( $webhook_notice );
+		}
+
+		foreach ( array( 'billing', 'shipping' ) as $type ) {
+			if ( 'shipping' === $type && ! $cart->needs_shipping() ) {
+				continue;
+			}
+			$country = $this->checkout_customer_data[ $type . '_country' ] ?? '';
+			$allowed = 'shipping' === $type ? WC()->countries->get_shipping_countries() : WC()->countries->get_allowed_countries();
+			if ( ! isset( $allowed[ $country ] ) ) {
+				throw new \InvalidArgumentException( __( 'Please select an allowed billing and shipping country.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			}
+			foreach ( WC()->countries->get_address_fields( $country, $type . '_' ) as $key => $field ) {
+				$value = $this->checkout_customer_data[ $key ] ?? '';
+				if ( ! empty( $field['required'] ) && '' === trim( $value ) ) {
+					/* translators: %s: Checkout field label. */
+					throw new \InvalidArgumentException( sprintf( __( '%s is required before subscribing.', 'woocommerce-paypal-pro-payment-gateway' ), wp_strip_all_tags( $field['label'] ?? $key ) ) );
+				}
+				if ( '' === $value ) {
+					continue;
+				}
+				$validation = $field['validate'] ?? array();
+				if ( in_array( 'postcode', $validation, true ) && ! \WC_Validation::is_postcode( $value, $country )
+					|| in_array( 'phone', $validation, true ) && ! \WC_Validation::is_phone( $value )
+					|| in_array( 'email', $validation, true ) && ! is_email( $value ) ) {
+					throw new \InvalidArgumentException( __( 'Please enter valid checkout contact and address details.', 'woocommerce-paypal-pro-payment-gateway' ) );
+				}
+			}
+			$states = WC()->countries->get_states( $country );
+			$state = $this->checkout_customer_data[ $type . '_state' ] ?? '';
+			if ( $state && is_array( $states ) && $states && ! isset( $states[ $state ] ) ) {
+				throw new \InvalidArgumentException( __( 'Please select a valid state for your country.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			}
+		}
+
+		$cart->check_cart_items();
+		$cart->check_cart_coupons();
+		$cart->check_customer_coupons( $this->checkout_customer_data );
+		if ( wc_notice_count( 'error' ) ) {
+			$errors = wc_get_notices( 'error' );
+			wc_clear_notices();
+			throw new \InvalidArgumentException( wp_strip_all_tags( implode( ' ', array_column( $errors, 'notice' ) ) ) );
+		}
+	}
+
 	/**
 	 * Read only supported address fields, never customer IDs or posted totals.
 	 */
@@ -302,17 +374,14 @@ class PayPal_Button_Sub_Ajax_Handler {
 	/**
 	 * Create WooCommerce order from current cart
 	 */
-	private function create_wc_order_from_cart() {
+	private function create_wc_order_from_cart( $fingerprint ) {
 		try {
-			// Create order from cart
-			$checkout = WC()->checkout();
-
 			// Get posted data
 			$data = $this->checkout_customer_data;
 			$data['ship_to_different_address'] = 1;
 
 			// Create the order
-			$order_id = $checkout->create_order($data);
+			$order_id = PayPal_Checkout_Attempt::create_order( $data, 'subscription', $fingerprint );
 
 			if (is_wp_error($order_id)) {
 				return false;

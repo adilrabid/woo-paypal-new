@@ -203,7 +203,7 @@ class WCPPROG_Subscription_Related {
         return array( 'initial' => $initial_total, 'recurring' => $recurring_total );
     }
 
-    public function get_subscription_plan_data( $cart_item ) {
+    public static function get_subscription_plan_data( $cart_item ) {
         $product = $cart_item['data'];
 
         $subscription_plan_html = '';

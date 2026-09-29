@@ -251,7 +251,8 @@ class PayPal_Utility_IPN_Related {
 	 */
 	public static function copy_subscription_line_item( $item ) {
 		// Persisted clones retain their ID and would move the original item.
-		$copy = new \WC_Order_Item_Product();
+		$class = get_class( $item );
+		$copy = new $class();
 		$data = $item->get_data();
 		unset( $data['id'], $data['order_id'], $data['meta_data'] );
 		$copy->set_props( $data );
@@ -281,6 +282,12 @@ class PayPal_Utility_IPN_Related {
 				$subscription_order = new \WCPPROG_WC_Subscription_Order();
 
 				$subscription_order->set_customer_id( $order->get_customer_id() );
+				$subscription_order->set_payment_method( $order->get_payment_method() );
+				$subscription_order->set_payment_method_title( $order->get_payment_method_title() );
+				$subscription_order->set_currency( $order->get_currency() );
+				$subscription_order->set_prices_include_tax( $order->get_prices_include_tax() );
+				$subscription_order->set_cart_tax( $order->get_cart_tax() );
+				$subscription_order->set_shipping_tax( $order->get_shipping_tax() );
 				$subscription_order->set_billing_address( $order->get_address( 'billing' ) );
 				$subscription_order->set_shipping_address( $order->get_address( 'shipping' ) );
 
@@ -291,6 +298,10 @@ class PayPal_Utility_IPN_Related {
 
 				// Copy the line item onto the subscription for reference
 				$subscription_order->add_item( self::copy_subscription_line_item( $item ) );
+				// Preserve the initial checkout breakdown, including tax rates and coupons.
+				foreach ( $order->get_items( array( 'shipping', 'fee', 'tax', 'coupon' ) ) as $extra_item ) {
+					$subscription_order->add_item( self::copy_subscription_line_item( $extra_item ) );
+				}
 
 				$interval = (int) $product->get_meta( '_subscription_recurring_billing_interval', true );
 				$period   = $product->get_meta( '_subscription_recurring_billing_interval_type', true );

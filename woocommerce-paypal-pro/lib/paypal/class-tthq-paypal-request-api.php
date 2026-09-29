@@ -326,6 +326,7 @@ class PayPal_Request_API {
 	 * Minimizes the amount of response code check the source code has to do.
 	 */
 	private function process_request_result( $res, $status_code = 200, $additional_args = array() ) {
+		$this->last_error = array();
 		if (is_wp_error( $res )) {
 			$this->last_error['error_message'] = $res->get_error_message();
 			$this->last_error['error_code'] = $res->get_error_code();
@@ -335,12 +336,17 @@ class PayPal_Request_API {
 		}
 
 		if ($status_code !== $res['response']['code']) {
+			$this->last_error['http_code'] = $res['response']['code'];
+			$this->last_error['error_message'] = 'PayPal returned an unexpected HTTP status.';
 			if (! empty( $res['body'] )) {
 				$body = json_decode( $res['body'], true );
 				if (isset( $body['error'] )) {
 					$this->last_error['error_message'] = $body['error_description'];
 					$this->last_error['error_code'] = $body['error'];//String error code (ex: "invalid_client")
 					$this->last_error['http_code'] = $res['response']['code'];//HTTP error code (ex: 400)
+				} elseif ( isset( $body['name'] ) ) {
+					$this->last_error['error_code'] = $body['name'];
+					$this->last_error['error_message'] = $body['message'] ?? $body['name'];
 				}
 			} else {
 				//Empty body response.
