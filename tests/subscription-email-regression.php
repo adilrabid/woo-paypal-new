@@ -21,6 +21,7 @@ namespace {
     function absint($value) { return abs((int) $value); }
     function add_action(...$args) {}
     function add_filter(...$args) {}
+    function apply_filters($hook, $value, ...$args) { return $value; }
     function current_user_can(...$args) { return $GLOBALS['allowed']; }
     function is_email($text) { return filter_var($text, FILTER_VALIDATE_EMAIL); }
     function WC() { return $GLOBALS['wc']; }
@@ -77,6 +78,8 @@ namespace {
         public function get_order_item_totals() { return array(array('label' => 'Total:', 'value' => '$25.00')); }
     }
     class WC_Product {
+        public static $billing_count = 6;
+        public function get_subscription_recurring_billing_count() { return self::$billing_count; }
         public function get_type() { return WCPPROG_Subscription_Related::SUBSCRIPTION_PRODUCT_TYPE; }
         public function get_price_html() { return '$25.00 / month'; }
     }
@@ -127,6 +130,17 @@ namespace {
     require WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-order-handler.php';
     require WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-related.php';
     function check($condition, $message) { if (!$condition) { throw new RuntimeException($message); } }
+    foreach (array(1, 6, 0, '') as $count) {
+        WC_Product::$billing_count = $count;
+        $plan = WCPPROG_Subscription_Related::get_subscription_plan_data(array('data' => new WC_Product()));
+        if ((int) $count > 0) {
+            $expected = $count === 1 ? ', stops after 1 recurring payment.' : ', stops after 6 recurring payments.';
+            check(str_contains($plan['subscription_plan_html'], $expected), 'Checkout plan includes configured billing count');
+        } else {
+            check(!str_contains($plan['subscription_plan_html'], 'stops after'), 'Unlimited billing has no finite payment limit');
+        }
+    }
+    WC_Product::$billing_count = 6;
     $handler = new WCPPROG_Subscription_Order_Handler();
     $order = new WC_Order();
     $defaults = array('send_order_details' => 'Invoice', 'regenerate_download_permissions' => 'Downloads');
@@ -144,7 +158,7 @@ namespace {
     $handler->send_subscription_information($order);
     $message = WC()->mailer->messages[0];
     check($message['recipient'] === 'buyer@example.com', 'Use stored customer billing email');
-    foreach (array('SUB-42', 'I-123&lt;script&gt;', 'Every 2 months', '2026-10-27 14:00', 'Payment Gateway', 'PayPal Checkout', 'Subscription ID', 'Subscription plan', '$25.00 / month', 'Excluding applicable tax, shipping, coupon discounts and other fees!', 'Received Payments', 'Initial Payment', 'Recurring Payment', 'TXN-10', 'TXN-11', 'REFUND-1', '$5.00') as $text) {
+    foreach (array('SUB-42', 'I-123&lt;script&gt;', 'Every 2 months', '2026-10-27 14:00', 'Payment Gateway', 'PayPal Checkout', 'Subscription ID', 'Subscription plan', '$25.00 / month', ', stops after 6 recurring payments.', 'Excluding applicable tax, shipping, coupon discounts and other fees!', 'Received Payments', 'Initial Payment', 'Recurring Payment', 'TXN-10', 'TXN-11', 'REFUND-1', '$5.00') as $text) {
         check(str_contains($message['message'], $text), 'Include subscription information: ' . $text);
     }
     foreach (array('Initial checkout amounts', 'PayPal subscription ID', '/wp-admin/', 'TXN-12', 'TXN-13') as $text) {
