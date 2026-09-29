@@ -325,7 +325,7 @@ class WCPPROG_Subscription_Related {
                 'description'       => __( 'After how many cycles should billing stop. Leave this field empty (or enter 0) if you want the payment to continue until the subscription is canceled.', 'woocommerce-paypal-pro-payment-gateway' ),
                 'type'              => 'number',
                 'custom_attributes' => array(
-                        'min'  => 1,
+                        'min'  => 0,
                         'step' => 1,
                 ),
         ) );

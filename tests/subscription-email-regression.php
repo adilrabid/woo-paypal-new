@@ -97,7 +97,9 @@ namespace {
     }
     $refund = new class {
         public function get_date_created() { return new DateTime('2026-09-12'); }
-        public function get_meta($key, $single) { return 'REFUND-1'; }
+        public $paypal_id = 'REFUND-1';
+        public function get_meta($key, $single) { return $key === '_wcppprog_paypal_refund_id' ? $this->paypal_id : ''; }
+        public function get_id() { return 90; }
         public function get_amount() { return 5; }
     };
     $GLOBALS['payments'] = array(10 => new TestPayment(10, 25, true), 11 => new TestPayment(11, 25, true, array($refund)), 12 => new TestPayment(12, 25, false), 13 => new TestPayment(13, 0, true));
@@ -194,12 +196,20 @@ namespace {
     $saved_payments[10]->meta['_wcpprog_subscription_order_id'] = 42;
     $saved_payments[10]->total = 30;
     WCPPROG_Subscription_Payment_History::order_saved($saved_payments[10]);
-    check($order->meta['_wcpprog_payment_snapshot_10']['amount'] === 30, 'Refresh amount on order save');
+    check($order->meta['_wcppprog_payment_snapshot_10']['amount'] === 30, 'Refresh amount on order save');
+    $refund->paypal_id = '';
     $saved_payments[10]->refunds = array($refund);
     WCPPROG_Subscription_Payment_History::refund_saved(new class {
         public function get_parent_id() { return 10; }
     });
-    check(count($order->meta['_wcpprog_payment_snapshot_10']['refunds']) === 1, 'Refresh refund details on refund save');
+    check(count($order->meta['_wcppprog_payment_snapshot_10']['refunds']) === 1, 'Refresh refund details on refund save');
+    check($order->meta['_wcppprog_payment_snapshot_10']['refunds'][0]['id'] === '#90', 'Refund without PayPal metadata uses local ID without an order-only method');
+    ob_start();
+    $handler->render_payment_history_meta_box($order);
+    check(str_contains(ob_get_clean(), '#90'), 'Render refunds before the webhook attaches PayPal metadata');
+    $refund->paypal_id = 'REFUND-1';
+    WCPPROG_Subscription_Payment_History::refresh_order(10);
+    check($order->meta['_wcppprog_payment_snapshot_10']['refunds'][0]['id'] === 'REFUND-1', 'Persist PayPal refund ID once available');
     $saved_payments[10]->refunds = array();
     $GLOBALS['payments'][90] = new class {
         public function get_type() { return 'shop_order_refund'; }
@@ -208,12 +218,12 @@ namespace {
     WCPPROG_Subscription_Payment_History::before_delete(90);
     unset($GLOBALS['payments'][90]);
     WCPPROG_Subscription_Payment_History::after_delete(90);
-    check(!$order->meta['_wcpprog_payment_snapshot_10']['refunds'], 'Deleting an individual refund refreshes the snapshot');
+    check(!$order->meta['_wcppprog_payment_snapshot_10']['refunds'], 'Deleting an individual refund refreshes the snapshot');
     $saved_payments[10]->refunds = array($refund);
     WCPPROG_Subscription_Payment_History::before_delete(10);
     $saved_payments[10]->refunds = array();
     WCPPROG_Subscription_Payment_History::refresh_order(10);
-    check(count($order->meta['_wcpprog_payment_snapshot_10']['refunds']) === 1, 'Parent deletion preserves refunds while child records are removed');
+    check(count($order->meta['_wcppprog_payment_snapshot_10']['refunds']) === 1, 'Parent deletion preserves refunds while child records are removed');
     unset($GLOBALS['payments'][10]);
     $rows = WCPPROG_Subscription_Payment_History::get_rows($order);
     $initial = array_values(array_filter($rows, static fn($row) => $row['order_id'] === 10))[0];

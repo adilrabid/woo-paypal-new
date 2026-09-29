@@ -13,7 +13,7 @@ class WCPPROG_Subscription_Order_Handler {
 	const ORDER_TYPE = 'wcpprog_sub_order';
 
 	public function __construct() {
-		require_once WC_PP_PRO_ADDON_PATH . '/subscription/class-wcpprog-sub-payment-history.php';
+		require_once WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-payment-history.php';
 		WCPPROG_Subscription_Payment_History::init();
 		add_action( 'init', array( $this, 'register_order_type' ) );
 

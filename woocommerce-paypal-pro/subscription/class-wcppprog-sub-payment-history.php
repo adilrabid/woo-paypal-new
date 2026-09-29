@@ -4,7 +4,7 @@ defined( 'ABSPATH' ) || exit;
 
 /** Persist only the fields displayed in a subscription's received payments table. */
 class WCPPROG_Subscription_Payment_History {
-    const META_PREFIX = '_wcpprog_payment_snapshot_';
+    const META_PREFIX = '_wcppprog_payment_snapshot_';
     private static $deleting = array();
     private static $refund_parents = array();
 
@@ -32,7 +32,7 @@ class WCPPROG_Subscription_Payment_History {
         foreach ( $payment->get_refunds() as $refund ) {
             $refund_date = $refund->get_date_created();
             $refunds[] = array(
-                'id' => $refund->get_meta( '_wcpprog_paypal_refund_id', true ) ?: ( $refund->get_transaction_id() ?: '#' . $refund->get_id() ),
+                'id' => $refund->get_meta( '_wcppprog_paypal_refund_id', true ) ?: ( '#' . $refund->get_id() ),
                 'date' => $refund_date ? $refund_date->getTimestamp() : 0,
                 'amount' => $refund->get_amount(),
             );
