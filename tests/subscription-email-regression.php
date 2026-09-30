@@ -23,6 +23,7 @@ namespace {
     function add_filter(...$args) {}
     function apply_filters($hook, $value, ...$args) { return $value; }
     function current_user_can(...$args) { return $GLOBALS['allowed']; }
+    function get_current_user_id() { return 5; }
     function is_email($text) { return filter_var($text, FILTER_VALIDATE_EMAIL); }
     function WC() { return $GLOBALS['wc']; }
     function wp_specialchars_decode($text, $flags) { return htmlspecialchars_decode($text, $flags); }
@@ -42,6 +43,9 @@ namespace {
         public static function add_error($text) { self::$errors[] = $text; }
     }
     class WC_Order {
+        public $customer_id = 5;
+        public function get_customer_id() { return $this->customer_id; }
+        public function get_view_order_url() { return '/my-account/view-order/' . $this->get_id(); }
         public $type = 'wcpprog_sub_order';
         public $email = 'buyer@example.com';
         public $status = 'wcpprog-active';
@@ -170,6 +174,15 @@ namespace {
     $handler->render_payment_history_meta_box($order);
     $admin_table = ob_get_clean();
     check(str_contains($admin_table, '/wp-admin/order/10') && str_contains($admin_table, 'REFUND-1'), 'Admin table retains links and refund details');
+    ob_start();
+    WCPPROG_Subscription_Order_Handler::render_payment_history_table($order, false, true);
+    $customer_table = ob_get_clean();
+    check(str_contains($customer_table, '/my-account/view-order/10') && !str_contains($customer_table, '/wp-admin/'), 'Account payment links point to customer order views');
+    $GLOBALS['payments'][10]->customer_id = 9;
+    ob_start();
+    WCPPROG_Subscription_Order_Handler::render_payment_history_table($order, false, true);
+    check(!str_contains(ob_get_clean(), '/my-account/view-order/10'), 'Do not link to orders belonging to another customer');
+    $GLOBALS['payments'][10]->customer_id = 5;
     check(!str_contains($message['message'], '<script>'), 'Escape customer/product content');
     foreach (array('My Custom Gateway', 'Customer information', 'Email', 'buyer@example.com', 'Billing address', '12 Billing Street', 'Shipping address', '34 Shipping Street', '+123456789', '+987654321') as $text) {
         check(str_contains($message['message'], $text), 'Include configured gateway title and contact details: ' . $text);

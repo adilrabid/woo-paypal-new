@@ -14,7 +14,19 @@ class WCPPROG_WC_Subscription_Order extends WC_Order {
 	}
 
 	public function set_next_payment_date( $date ) {
-		$this->update_meta_data( '_next_payment_date', $date );
+		$this->update_meta_data( '_next_payment_date', sanitize_text_field($date) );
+	}
+
+	public function get_next_payment_date() {
+		return $this->get_meta( '_next_payment_date', true );
+	}
+
+	public function set_paypal_subscription_id( $date ) {
+		$this->update_meta_data( '_paypal_subscription_id', sanitize_text_field($date) );
+	}
+
+	public function get_paypal_subscription_id() {
+		return $this->get_meta( '_paypal_subscription_id', true );
 	}
 
 	public function get_parent_order_id_ref() {
