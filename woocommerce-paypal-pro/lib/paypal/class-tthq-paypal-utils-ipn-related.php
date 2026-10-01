@@ -295,6 +295,11 @@ class PayPal_Utility_IPN_Related {
 				$has_trial = 'yes' === $order->get_meta( '_wcpprog_has_trial', true );
 				$subscription_order->update_meta_data( '_wcpprog_has_trial', $has_trial ? 'yes' : 'no' );
 				$subscription_order->set_status( $has_trial ? 'wcpprog-trial' : 'wcpprog-active' );
+				$expired = 'EXPIRED' === ( $txn_data['status'] ?? '' );
+				if ( $expired ) {
+					$subscription_order->set_status( 'wcpprog-expired' );
+					$subscription_order->update_meta_data( '_paypal_subscription_status', 'EXPIRED' );
+				}
 
 				// Copy the line item onto the subscription for reference
 				$subscription_order->add_item( self::copy_subscription_line_item( $item ) );
@@ -322,7 +327,7 @@ class PayPal_Utility_IPN_Related {
 					$next_payment = strtotime( "+{$interval} {$period}" );
 				}
 
-				$subscription_order->set_next_payment_date( gmdate( 'Y-m-d H:i:s', $next_payment ) );
+				$subscription_order->set_next_payment_date( $expired ? '' : gmdate( 'Y-m-d H:i:s', $next_payment ) );
 				$subscription_order->calculate_totals( false );
 				$subscription_order->save();
 

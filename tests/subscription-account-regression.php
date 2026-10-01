@@ -12,7 +12,7 @@ namespace TTHQ\WC_PP_PRO\Lib\PayPal {
 namespace {
     define('ABSPATH', __DIR__);
     define('WC_PP_PRO_ADDON_PATH', dirname(__DIR__) . '/woocommerce-paypal-pro');
-    function add_action(...$args) {} function add_filter(...$args) {}
+    function add_action(...$args) { $GLOBALS['hooks'][$args[0]] = $args[1]; } function add_filter(...$args) {}
     function __($text, ...$args) { return $text; }
     function esc_html($text) { return htmlspecialchars((string) $text, ENT_QUOTES); }
     function esc_attr($text) { return esc_html($text); }
@@ -23,6 +23,10 @@ namespace {
     function absint($value) { return abs((int) $value); }
     function get_current_user_id() { return $GLOBALS['uid']; }
     function current_user_can(...$args) { return false; }
+    function is_admin() { return $GLOBALS['admin'] ?? false; }
+    class WC_AJAX { public static function get_endpoint($action) { return '/?wc-ajax=' . $action; } }
+    function is_account_page() { return true; }
+    function is_wc_endpoint_url($endpoint) { return $GLOBALS['view_order'] ?? false; }
     function wc_get_order($id) { return $GLOBALS['orders'][$id] ?? false; }
     function wc_get_orders($args) { $GLOBALS['query'] = $args; return $GLOBALS['results']; }
     function wc_print_notice($text, $type) { echo $text; }
@@ -38,7 +42,7 @@ namespace {
     function wp_json_encode($value) { return json_encode($value); }
     function wp_create_nonce($action) { return 'nonce'; }
     function admin_url($path) { return '/wp-admin/' . $path; }
-    function check_ajax_referer($action, $key) { if (!$GLOBALS['nonce_ok']) { throw new RuntimeException('Bad nonce'); } }
+    function check_ajax_referer($action, $key, $die = true) { return $GLOBALS['nonce_ok']; }
     function wp_send_json_error($data, $status = null) { throw new RuntimeException($data['message']); }
     class WC_Order {
         public $owner = 5;
@@ -60,6 +64,8 @@ namespace {
     $handler = new WCPPROG_Subscription_Order_Handler();
     $GLOBALS['uid'] = 5;
     $GLOBALS['nonce_ok'] = true;
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+    $_POST['nonce'] = 'nonce';
     $order = new WC_Order();
     $GLOBALS['orders'] = array(7 => $order);
     $GLOBALS['results'] = (object) array('orders' => array($order), 'max_num_pages' => 3);
@@ -68,12 +74,17 @@ namespace {
     foreach (array('Date', 'I-123&lt;script&gt;', 'page/1', 'page/3', 'view-subscription/7', 'View') as $text) { check(str_contains($html, $text), 'List contains ' . $text); }
     $html = output(fn() => $handler->render_subscription_detail(7));
     check(str_contains($html, 'DETAILS') && str_contains($html, 'Cancel subscription') && $GLOBALS['template_args']['customer_account'], 'Owner gets details and cancellation');
-    check(str_contains($html, 'fetch("\/wp-admin\/admin-ajax.php"'), 'Frontend uses explicit AJAX URL');
+    check(str_contains($html, 'fetch("\/?wc-ajax=wcpprog_cancel_subscription"'), 'Customer uses frontend WooCommerce AJAX endpoint');
+    check(isset($GLOBALS['hooks']['wc_ajax_wcpprog_cancel_subscription']), 'Frontend cancellation handler is registered');
+    $GLOBALS['admin'] = true;
+    check(str_contains(output(fn() => $handler->render_subscription_manage_meta_box($order)), 'fetch("\/wp-admin\/admin-ajax.php"'), 'Admin keeps admin AJAX endpoint');
+    $GLOBALS['admin'] = false;
     $order->status = 'wcpprog-cancelled';
     check(!str_contains(output(fn() => $handler->render_subscription_detail(7)), 'Cancel subscription'), 'Cancelled subscription cannot be cancelled again');
     $order->status = 'wcpprog-active';
     foreach (array(0, 8) as $uid) {
         $GLOBALS['uid'] = $uid;
+        check(output(fn() => $handler->render_subscription_manage_meta_box($order)) === '', 'Guest or different customer cannot render cancellation controls');
         check(!str_contains(output(fn() => $handler->render_subscription_detail(7)), 'DETAILS'), 'Guest or different customer cannot read details');
         $_POST['order_id'] = 7;
         try { $handler->cancel_subscription(); } catch (RuntimeException $error) {}
@@ -88,6 +99,30 @@ namespace {
     try { $handler->cancel_subscription(); } catch (RuntimeException $error) {}
     check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$calls === 0, 'Nonce failure stops cancellation');
     $GLOBALS['nonce_ok'] = true;
+    foreach (array(array('7'), '-7', '7invalid', '0') as $invalid_id) {
+        $_POST['order_id'] = $invalid_id;
+        try { $handler->cancel_subscription(); } catch (RuntimeException $error) {}
+        check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$calls === 0, 'Malformed order ID never reaches PayPal');
+    }
+    $_POST['order_id'] = 7;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    try { $handler->cancel_subscription(); } catch (RuntimeException $error) {}
+    check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$calls === 0, 'GET request never reaches PayPal');
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+    unset($_POST['nonce']);
+    try { $handler->cancel_subscription(); } catch (RuntimeException $error) {}
+    check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$calls === 0, 'Missing nonce never reaches PayPal');
+    $_POST['nonce'] = 'nonce';
+    foreach (array('wcpprog-cancelled', 'wcpprog-expired', 'trash') as $status) {
+        $order->status = $status;
+        try { $handler->cancel_subscription(); } catch (RuntimeException $error) {}
+        check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$calls === 0, 'Unavailable subscription never reaches PayPal');
+    }
+    $order->status = 'wcpprog-active';
+    $order->type = 'shop_order';
+    try { $handler->cancel_subscription(); } catch (RuntimeException $error) {}
+    check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$calls === 0, 'Regular order never reaches PayPal cancellation');
+    $order->type = 'wcpprog_sub_order';
     try { $handler->cancel_subscription(); } catch (RuntimeException $error) {}
     check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$calls === 1 && $order->status === 'wcpprog-active', 'Owner can request cancellation; API failure preserves status');
     $order->type = 'shop_order';
@@ -96,5 +131,21 @@ namespace {
     check(str_contains(output(fn() => $handler->render_subscriptions_endpoint_content()), 'Invalid subscription page'), 'Reject malformed detail URL');
     $GLOBALS['results']->orders = array();
     check(str_contains(output(fn() => $handler->render_subscriptions_list()), 'no subscriptions yet'), 'Empty list is explained');
+    $GLOBALS['view_order'] = true;
+    $order->type = 'wcpprog_sub_order';
+    $payment = new class extends WC_Order {
+        public $type = 'shop_order';
+        public function get_meta($key, $single) { return $key === '_wcpprog_subscription_order_id' ? 7 : ''; }
+    };
+    $link = output(fn() => $handler->render_customer_order_subscription_link($payment));
+    check(str_contains($link, 'View Subscription #7') && str_contains($link, '/subscriptions/view-subscription/7'), 'Linked payment shows customer subscription URL');
+    $order->owner = 9;
+    check(output(fn() => $handler->render_customer_order_subscription_link($payment)) === '', 'Hide subscriptions owned by another customer');
+    $order->owner = 5;
+    $payment->owner = 9;
+    check(output(fn() => $handler->render_customer_order_subscription_link($payment)) === '', 'Hide link on another customer payment order');
+    $payment->owner = 5;
+    $GLOBALS['view_order'] = false;
+    check(output(fn() => $handler->render_customer_order_subscription_link($payment)) === '', 'Limit link to account order detail endpoint');
     echo "Subscription account regression checks passed.\n";
 }

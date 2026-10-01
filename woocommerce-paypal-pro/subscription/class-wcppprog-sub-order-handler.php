@@ -36,6 +36,7 @@ class WCPPROG_Subscription_Order_Handler {
         add_filter( 'woocommerce_endpoint_subscriptions_title', array( $this, 'subscription_endpoint_title' ) );
         add_filter( 'woocommerce_account_menu_items', array($this, 'add_subscriptions_menu_item') );
         add_action( 'woocommerce_account_subscriptions_endpoint', array($this, 'render_subscriptions_endpoint_content') );
+        add_action( 'woocommerce_order_details_after_customer_details', array( $this, 'render_customer_order_subscription_link' ) );
 	}
 
     public function init_time_tasks() {
@@ -200,10 +201,21 @@ class WCPPROG_Subscription_Order_Handler {
 			return;
 		}
 
-		$paypal_id = $order->get_meta( '_paypal_subscription_id', true );
-		echo '<p class="form-field form-field-wide"><label for="wcppprog-sub-id-input">' . esc_html__( 'Subscription ID:', 'woocommerce-paypal-pro-payment-gateway' ) . '</label>';
-		echo $paypal_id ? '<input id="wcppprog-sub-id-input" type="text" readonly value="'.esc_html( $paypal_id ).'" />' : esc_html__( 'N/A', 'woocommerce-paypal-pro-payment-gateway' );
-		echo '</p>';
+		$paypal_id = $order->get_paypal_subscription_id();
+        if ( $paypal_id ) {
+            echo '<p class="form-field form-field-wide"><label for="wcppprog-sub-id-input">' . esc_html__( 'Subscription ID:', 'woocommerce-paypal-pro-payment-gateway' ) . '</label>';
+            echo $paypal_id ? '<input id="wcppprog-sub-id-input" type="text" readonly value="'.esc_html( $paypal_id ).'" />' : esc_html__( 'N/A', 'woocommerce-paypal-pro-payment-gateway' );
+            echo '</p>';
+        }
+
+		$next_payment = $order->get_next_payment_date();
+		if ( $next_payment && $order->has_status( array( 'wcpprog-active', 'wcpprog-trial' ) ) ) {
+			// datetime-local requires an ISO-style value in the store's timezone.
+			$next_payment_display = get_date_from_gmt( $next_payment, 'Y-m-d\TH:i' );
+            echo '<p class="form-field form-field-wide"><label for="wcppprog-next-payment-input">' . esc_html__( 'Next payment date:', 'woocommerce-paypal-pro-payment-gateway' ) . '</label>';
+            echo '<input id="wcppprog-next-payment-input" type="datetime-local" value="' . esc_attr( $next_payment_display ) . '" readonly />';
+            echo '</p>';
+		}
 	}
 
 	private function can_cancel_subscription( $order ) {
@@ -312,7 +324,8 @@ class WCPPROG_Subscription_Order_Handler {
 
 	public function render_subscription_manage_meta_box( $object ) {
 		$order = $object instanceof WC_Order ? $object : wc_get_order( $object->ID );
-		if ( ! $this->can_cancel_subscription( $order ) ) {
+		if ( ! $this->can_cancel_subscription( $order ) || ! get_current_user_id()
+			|| ( ! current_user_can( 'edit_shop_order', $order->get_id() ) && ! $this->customer_owns_subscription( $order ) ) ) {
 			return;
 		}
 		?>
@@ -353,7 +366,18 @@ class WCPPROG_Subscription_Order_Handler {
 	}
 
 	public function cancel_subscription() {
-		$id = isset( $_POST['order_id'] ) ? absint( $_POST['order_id'] ) : 0;
+		if ( ! get_current_user_id() ) {
+			wp_send_json_error( array( 'message' => __( 'Please log in to manage your subscription.', 'woocommerce-paypal-pro-payment-gateway' ) ), 403 );
+		}
+		if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Invalid cancellation request.', 'woocommerce-paypal-pro-payment-gateway' ) ), 405 );
+		}
+		$posted_id = $_POST['order_id'] ?? '';
+		if ( ! is_scalar( $posted_id ) || ! preg_match( '/^[1-9][0-9]*$/D', (string) $posted_id )
+			|| ! isset( $_POST['nonce'] ) || ! is_string( $_POST['nonce'] ) ) {
+			wp_send_json_error( array( 'message' => __( 'Invalid cancellation request.', 'woocommerce-paypal-pro-payment-gateway' ) ), 400 );
+		}
+		$id = absint( $posted_id );
 		check_ajax_referer( 'wcpprog_cancel_subscription_' . $id, 'nonce' );
 		$order = wc_get_order( $id );
 		if ( ! current_user_can( 'edit_shop_order', $id ) && ! $this->customer_owns_subscription( $order ) ) {
@@ -533,6 +557,24 @@ class WCPPROG_Subscription_Order_Handler {
         ), '', WC_PP_PRO_ADDON_PATH . '/templates/' );
     }
 
+    public function render_customer_order_subscription_link( $order ) {
+        if ( ! is_account_page() || ! is_wc_endpoint_url( 'view-order' )
+            || ! $order instanceof WC_Order || 'shop_order' !== $order->get_type()
+            || ! get_current_user_id() || (int) $order->get_customer_id() !== get_current_user_id() ) {
+            return;
+        }
+        $subscription_id = absint( $order->get_meta( '_wcpprog_subscription_order_id', true ) );
+        $subscription = $subscription_id ? wc_get_order( $subscription_id ) : false;
+        if ( ! $this->customer_owns_subscription( $subscription ) ) {
+            return;
+        }
+        echo '<section class="woocommerce-order-subscription">';
+        echo '<h2>' . esc_html__( 'Subscription', 'woocommerce-paypal-pro-payment-gateway' ) . '</h2>';
+        /* translators: %s: Subscription order number. */
+        echo '<p><a class="woocommerce-button woocommerce-Button button wp-element-button" href="' . esc_url( $this->get_subscription_view_url( $subscription_id ) ) . '">' . esc_html( sprintf( __( 'View Subscription #%s', 'woocommerce-paypal-pro-payment-gateway' ), $subscription->get_order_number() ) ) . '</a></p>';
+        echo '</section>';
+    }
+
     public function get_subscription_view_url( $sub_order_id ) {
         return wc_get_endpoint_url( 'subscriptions', 'view-subscription/' . absint( $sub_order_id ), wc_get_page_permalink( 'myaccount' ) );
     }
@@ -558,7 +600,7 @@ class WCPPROG_Subscription_Order_Handler {
         ), '', WC_PP_PRO_ADDON_PATH . '/templates/' );
 
         if ( $this->can_cancel_subscription( $sub_order ) ) {
-            echo '<h2 class="woocommerce-order-details__title">' . esc_html__( 'Manage subscription', 'woocommerce-paypal-pro-payment-gateway' ) . '</h2>';
+            echo '<h2 class="woocommerce-column__title">' . esc_html__( 'Manage subscription', 'woocommerce-paypal-pro-payment-gateway' ) . '</h2>';
             $this->render_subscription_manage_meta_box( $sub_order );
         }
     }

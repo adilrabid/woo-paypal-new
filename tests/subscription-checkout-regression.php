@@ -1,6 +1,10 @@
 <?php
 /** Standalone regression checks: php tests/subscription-checkout-regression.php */
 namespace TTHQ\WC_PP_PRO\Lib\PayPal {
+    class PayPal_Request_API_Injector {
+        public static $details;
+        public function get_paypal_subscription_details($id) { return self::$details; }
+    }
     class PayPal_Utils {
         public static $options = array();
         public static function get_option($key) { return self::$options[$key] ?? ''; }
@@ -19,6 +23,10 @@ namespace {
     function wc_get_notices($type) { return $GLOBALS['notices']; }
     function wc_clear_notices() { $GLOBALS['notices'] = array(); }
     function sanitize_text_field($text) { return $text; }
+    function absint($value) { return abs((int) $value); }
+    function get_current_user_id() { return $GLOBALS['uid'] ?? 1; }
+    function wc_get_orders($args) { return array($GLOBALS['approval_order']); }
+    function wp_json_encode($value) { return json_encode($value); }
     class WC_Payment_Gateway {}
     class WCPPROG_Subscription_Related { const SUBSCRIPTION_PRODUCT_TYPE = 'subscription'; }
     class WCPPROG_Subscription_Product {
@@ -153,5 +161,47 @@ namespace {
     $cart->stock_error = false;
     $handler->wc_paypal_ppcp->notice = 'Missing webhook';
     $reject('webhook');
+    $GLOBALS['wc']->session = new class { public function get($key) { return 10; } };
+    $GLOBALS['approval_order'] = new class {
+        public function get_id() { return 10; }
+        public function get_customer_id() { return 1; }
+        public function get_meta($key, $single) { return $key === '_wcpprog_paypal_plan_id' ? 'P-1' : 'no'; }
+    };
+    $response = (object) array('id' => 'I-1', 'plan_id' => 'P-1', 'status' => 'EXPIRED', 'billing_info' => (object) array('cycle_executions' => array((object) array('tenure_type' => 'REGULAR', 'total_cycles' => 1, 'cycles_completed' => 1, 'cycles_remaining' => 0))));
+    $validate_approval = function($details) use ($handler) {
+        \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$details = $details;
+        $posted = array('status' => 'ACTIVE');
+        $result = $handler->validate_subscription_checkout_txn_data(array('subscriptionID' => 'I-1'), $posted);
+        if ($result === true) { check($posted['status'] === $details->status, 'Use verified server status'); }
+        return $result;
+    };
+    check($validate_approval($response) === true, 'Completed single-cycle subscription is approved');
+    foreach (array('APPROVAL_PENDING', 'APPROVED', 'CANCELLED', 'SUSPENDED') as $status) {
+        $response->status = $status;
+        check($validate_approval($response) !== true, 'Reject unapproved or cancelled subscription');
+    }
+    $response->status = 'ACTIVE';
+    check($validate_approval($response) === true, 'Active subscriptions remain supported');
+    $response->status = 'EXPIRED';
+    $cycle = $response->billing_info->cycle_executions[0];
+    foreach (array('total_cycles' => 0, 'cycles_completed' => 0, 'cycles_remaining' => 1, 'tenure_type' => 'TRIAL') as $field => $value) {
+        $original = $cycle->$field;
+        $cycle->$field = $value;
+        check($validate_approval($response) !== true, 'Reject expiration without completed finite regular cycle');
+        $cycle->$field = $original;
+    }
+    $response->plan_id = 'P-other';
+    check($validate_approval($response) !== true, 'Completed subscription still requires matching plan');
+    $response->plan_id = 'P-1';
+    $response->id = 'I-other';
+    check($validate_approval($response) !== true, 'Completed subscription still requires matching ID');
+    $response->id = 'I-1';
+    $GLOBALS['uid'] = 2;
+    check($validate_approval($response) !== true, 'Completed subscription still requires ownership');
+    $GLOBALS['uid'] = 1;
+    check($validate_approval(false) !== true, 'API failure is rejected');
+    \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utility_IPN_Related::create_subscription_order($parent, array(), array('status' => 'EXPIRED'), array());
+    check(WCPPROG_WC_Subscription_Order::$last->values['set_status'] === 'wcpprog-expired', 'Preserve expired status at creation');
+    check(WCPPROG_WC_Subscription_Order::$last->values['set_next_payment_date'] === '', 'Completed subscription has no next payment');
     echo "Subscription checkout regression checks passed.\n";
 }

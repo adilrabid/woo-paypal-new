@@ -622,9 +622,23 @@ class PayPal_Button_Sub_Ajax_Handler {
 		}
 		$api = new PayPal_Request_API_Injector();
 		$details = $api->get_paypal_subscription_details( $subscription_id );
-		if ( ! $details || ( $details->id ?? '' ) !== $subscription_id || 'ACTIVE' !== ( $details->status ?? '' ) ) {
-			PayPal_Utils::log( 'Subscription approval not confirmed by PayPal for order #' . $order->get_id(), false );
-			return __( 'PayPal has not confirmed an active subscription. Please try again.', 'woocommerce-paypal-pro-payment-gateway' );
+		// A finite subscription can finish its last cycle before onApprove runs.
+		// Accept EXPIRED only when PayPal confirms all cycles, including REGULAR, completed.
+		$completed_regular = false;
+		$completed_cycles = ! empty( $details->billing_info->cycle_executions );
+		foreach ( $details->billing_info->cycle_executions ?? array() as $cycle ) {
+			$total = (int) ( $cycle->total_cycles ?? 0 );
+			if ( $total <= 0 || (int) ( $cycle->cycles_completed ?? 0 ) !== $total
+				|| (int) ( $cycle->cycles_remaining ?? -1 ) !== 0 ) {
+				$completed_cycles = false;
+			}
+			$completed_regular = $completed_regular || 'REGULAR' === ( $cycle->tenure_type ?? '' );
+		}
+		$status = $details->status ?? '';
+		$finished = 'EXPIRED' === $status && $completed_cycles && $completed_regular;
+		if ( ! $details || ( $details->id ?? '' ) !== $subscription_id || ( 'ACTIVE' !== $status && ! $finished ) ) {
+			PayPal_Utils::log( 'Subscription approval not confirmed by PayPal for order #' . $order->get_id() . '; PayPal status: ' . ( $status ?: 'unavailable' ), false );
+			return __( 'PayPal has not confirmed subscription approval. Please try again.', 'woocommerce-paypal-pro-payment-gateway' );
 		}
 		$plan_id = $order->get_meta( '_wcpprog_paypal_plan_id', true );
 		if ( $plan_id && $plan_id !== ( $details->plan_id ?? '' ) ) {

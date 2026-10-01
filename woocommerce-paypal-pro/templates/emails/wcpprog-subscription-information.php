@@ -25,7 +25,7 @@ $gateway    = $gateway ?: ( $order->get_payment_method_title() ?: ( $parent ? $p
 $order_items = $order->get_items();
 $subscription_item = isset($order_items[0]) ? $order_items[0] : array();
 foreach ( $order->get_items() as $item ){
-    $details[ __( 'Subscription', 'woocommerce-paypal-pro-payment-gateway' ) ] = $item->get_name();
+    $details[ __( 'Product', 'woocommerce-paypal-pro-payment-gateway' ) ] = $item->get_name();
 }
 
 $plans = array();
@@ -37,7 +37,7 @@ foreach ( $order->get_items() as $item ) {
 }
 $details[ __( 'Subscription plan', 'woocommerce-paypal-pro-payment-gateway' ) ] = $plans ? implode( '<br>', $plans ) : esc_html__( 'Unavailable', 'woocommerce-paypal-pro-payment-gateway' );;
 
-$details[ __( 'Payment Gateway', 'woocommerce-paypal-pro-payment-gateway' ) ] = $gateway ?: '—';
+$details[ __( 'Payment Method', 'woocommerce-paypal-pro-payment-gateway' ) ] = $gateway ?: '—';
 $details[ __( 'Subscription ID', 'woocommerce-paypal-pro-payment-gateway' ) ] = $paypal_id ?: '—';
 
 $interval = absint( $order->get_meta( '_billing_interval', true ) );
@@ -102,6 +102,7 @@ if ( $next_payment && $order->has_status( array( 'wcpprog-active', 'wcpprog-tria
             </address>
         </div>
 
+        <?php if ($order->get_formatted_shipping_address()) { ?>
         <div class="woocommerce-column woocommerce-column--2 woocommerce-column--shipping-address col-2">
             <h2 class="woocommerce-column__title"><?php esc_html_e( 'Shipping address', 'woocommerce-paypal-pro-payment-gateway' ); ?></h2>
             <address>
@@ -113,6 +114,7 @@ if ( $next_payment && $order->has_status( array( 'wcpprog-active', 'wcpprog-tria
                 <?php } ?>
             </address>
         </div>
+        <?php } ?>
     </section>
 </section>
 
