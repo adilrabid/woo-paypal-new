@@ -283,12 +283,14 @@ class PayPal_Webhook_Event_Handler {
 		}
 
 		$orders = $parent_id ? wc_get_orders( array(
+			'type'       => 'shop_order',
 			'meta_key'   => '_paypal_transaction_id',
 			'meta_value' => $parent_id,
 			'limit'      => 1
 		) ) : array();
 
 		if ( ! $paypal_refund_id || empty( $orders ) || wc_get_orders( array(
+				'type'       => 'shop_order_refund',
 				'meta_key'   => '_wcppprog_paypal_refund_id',
 				'meta_value' => $paypal_refund_id,
 				'limit'      => 1

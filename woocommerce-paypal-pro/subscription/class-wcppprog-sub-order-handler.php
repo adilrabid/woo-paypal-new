@@ -13,11 +13,11 @@ class WCPPROG_Subscription_Order_Handler {
 	const ORDER_TYPE = 'wcpprog_sub_order';
 
 	public function __construct() {
-		require_once WC_PP_PRO_ADDON_PATH . '/subscription/class-wcpprog-sub-payment-history.php';
+		require_once WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-payment-history.php';
 		WCPPROG_Subscription_Payment_History::init();
-		add_action( 'init', array( $this, 'register_order_type' ) );
 
-        add_action( 'init', array( $this, 'register_statuses' ) );
+        add_action( 'init', array( $this, 'init_time_tasks' ) );
+        add_action( 'wp_loaded', array( $this, 'maybe_refresh_subscription_rewrite_rules' ), 20 );
 		add_filter( 'wc_order_statuses', array( $this, 'add_statuses_to_list' ) );
 		add_action( 'woocommerce_admin_order_data_after_order_details', array( $this, 'render_subscription_id_in_order_details' ) );
 		add_action( 'add_meta_boxes', array( $this, 'add_cancellation_meta_box' ), 10, 2 );
@@ -32,7 +32,36 @@ class WCPPROG_Subscription_Order_Handler {
 		add_filter( 'woocommerce_order_actions', array( $this, 'subscription_order_actions' ), 20, 2 );
 		add_action( 'woocommerce_order_action_wcpprog_send_subscription_information', array( $this, 'send_subscription_information' ) );
 
+        add_filter( 'woocommerce_get_query_vars', array( $this, 'subscriptions_wc_query_vars' ) );
+        add_filter( 'woocommerce_endpoint_subscriptions_title', array( $this, 'subscription_endpoint_title' ) );
+        add_filter( 'woocommerce_account_menu_items', array($this, 'add_subscriptions_menu_item') );
+        add_action( 'woocommerce_account_subscriptions_endpoint', array($this, 'render_subscriptions_endpoint_content') );
+        add_action( 'woocommerce_order_details_after_customer_details', array( $this, 'render_customer_order_subscription_link' ) );
 	}
+
+    public function init_time_tasks() {
+        $this->register_order_type();
+
+        $this->register_statuses();
+
+        // Adds a endpoint publicly accessible for subscription pages for showing subscription orders in front-end customer account dashboard.
+        add_rewrite_endpoint( 'subscriptions', EP_ROOT | EP_PAGES );
+    }
+
+    /** Refresh cached routes only when our endpoint is missing, including after upgrades. */
+    public function maybe_refresh_subscription_rewrite_rules() {
+        // Plain permalinks use query arguments and need no endpoint rewrite rules.
+        if ( ! get_option( 'permalink_structure' ) ) {
+            return;
+        }
+        foreach ( (array) get_option( 'rewrite_rules', array() ) as $query ) {
+            if ( is_string( $query ) && false !== strpos( $query, '&subscriptions=' ) ) {
+                return;
+            }
+        }
+        // Run after endpoint registration and refresh the database rules only.
+        flush_rewrite_rules( false );
+    }
 
 	public function subscription_order_actions( $actions, $order = null ) {
 		if ( ! $order instanceof WC_Order || self::ORDER_TYPE !== $order->get_type() ) {
@@ -172,10 +201,21 @@ class WCPPROG_Subscription_Order_Handler {
 			return;
 		}
 
-		$paypal_id = $order->get_meta( '_paypal_subscription_id', true );
-		echo '<p class="form-field form-field-wide"><label for="wcppprog-sub-id-input">' . esc_html__( 'Subscription ID:', 'woocommerce-paypal-pro-payment-gateway' ) . '</label>';
-		echo $paypal_id ? '<input id="wcppprog-sub-id-input" type="text" readonly value="'.esc_html( $paypal_id ).'" />' : esc_html__( 'N/A', 'woocommerce-paypal-pro-payment-gateway' );
-		echo '</p>';
+		$paypal_id = $order->get_paypal_subscription_id();
+        if ( $paypal_id ) {
+            echo '<p class="form-field form-field-wide"><label for="wcppprog-sub-id-input">' . esc_html__( 'Subscription ID:', 'woocommerce-paypal-pro-payment-gateway' ) . '</label>';
+            echo $paypal_id ? '<input id="wcppprog-sub-id-input" type="text" readonly value="'.esc_html( $paypal_id ).'" />' : esc_html__( 'N/A', 'woocommerce-paypal-pro-payment-gateway' );
+            echo '</p>';
+        }
+
+		$next_payment = $order->get_next_payment_date();
+		if ( $next_payment && $order->has_status( array( 'wcpprog-active', 'wcpprog-trial' ) ) ) {
+			// datetime-local requires an ISO-style value in the store's timezone.
+			$next_payment_display = get_date_from_gmt( $next_payment, 'Y-m-d\TH:i' );
+            echo '<p class="form-field form-field-wide"><label for="wcppprog-next-payment-input">' . esc_html__( 'Next payment date:', 'woocommerce-paypal-pro-payment-gateway' ) . '</label>';
+            echo '<input id="wcppprog-next-payment-input" type="datetime-local" value="' . esc_attr( $next_payment_display ) . '" readonly />';
+            echo '</p>';
+		}
 	}
 
 	private function can_cancel_subscription( $order ) {
@@ -211,7 +251,7 @@ class WCPPROG_Subscription_Order_Handler {
     }
 
     /** Shared payment history for the admin metabox and customer email. */
-    public static function render_payment_history_table( $subscription, $email = false ) {
+    public static function render_payment_history_table( $subscription, $email = false, $customer_account = false ) {
         if ( ! $subscription || self::ORDER_TYPE !== $subscription->get_type() ) {
             return;
         }
@@ -232,16 +272,20 @@ class WCPPROG_Subscription_Order_Handler {
                 __( 'Refunds', 'woocommerce-paypal-pro-payment-gateway' )
         );
 
-        echo $email
+        echo $customer_account ? '<div style="overflow-x:auto"><table class="shop_table shop_table_responsive"><thead><tr>' : ( $email
             ? '<div style="overflow-x:auto"><table cellspacing="0" cellpadding="8" border="1" style="width:100%; border-collapse:collapse;"><thead><tr>'
-            : '<div style="overflow-x:auto"><table class="widefat striped"><thead><tr>';
+            : '<div style="overflow-x:auto"><table class="widefat striped"><thead><tr>' );
         foreach ( $cols as $col ) {
             echo '<th scope="col">' . esc_html( $col ) . '</th>';
         }
         echo '</tr></thead><tbody>';
         foreach ( $payments as $payment ) {
             echo '<tr><td>';
-            if ( $email || ! $payment['edit_url'] ) {
+            if ( $customer_account ) {
+                $linked_order = $payment['edit_url'] ? wc_get_order( $payment['order_id'] ) : false;
+                $url = $linked_order && get_current_user_id() > 0 && (int) $linked_order->get_customer_id() === get_current_user_id() ? $linked_order->get_view_order_url() : '';
+                echo $url ? '<a href="' . esc_url( $url ) . '">#' . esc_html( $payment['order_number'] ) . '</a>' : '#' . esc_html( $payment['order_number'] );
+            } elseif ( $email || ! $payment['edit_url'] ) {
                 echo '#' . esc_html( $payment['order_number'] );
             } else {
                 echo '<a href="' . esc_url( $payment['edit_url'] ) . '">#' . esc_html( $payment['order_number'] ) . '</a>';
@@ -280,12 +324,13 @@ class WCPPROG_Subscription_Order_Handler {
 
 	public function render_subscription_manage_meta_box( $object ) {
 		$order = $object instanceof WC_Order ? $object : wc_get_order( $object->ID );
-		if ( ! $this->can_cancel_subscription( $order ) ) {
+		if ( ! $this->can_cancel_subscription( $order ) || ! get_current_user_id()
+			|| ( ! current_user_can( 'edit_shop_order', $order->get_id() ) && ! $this->customer_owns_subscription( $order ) ) ) {
 			return;
 		}
 		?>
 		<p><?php esc_html_e( 'Cancel this subscription in PayPal to stop future payments.', 'woocommerce-paypal-pro-payment-gateway' ); ?></p>
-		<button type="button" class="button" id="wcpprog-cancel-subscription"><?php esc_html_e( 'Cancel subscription', 'woocommerce-paypal-pro-payment-gateway' ); ?></button>
+		<button type="button" class="woocommerce-button wp-element-button button" id="wcpprog-cancel-subscription"><?php esc_html_e( 'Cancel subscription', 'woocommerce-paypal-pro-payment-gateway' ); ?></button>
 		<p id="wcpprog-cancel-result" role="status"></p>
 		<script>
 		(function () {
@@ -301,7 +346,7 @@ class WCPPROG_Subscription_Order_Handler {
 					nonce: <?php echo wp_json_encode( wp_create_nonce( 'wcpprog_cancel_subscription_' . $order->get_id() ) ); ?>
 				});
 				try {
-					const request = await fetch(ajaxurl, { method: 'POST', body });
+					const request = await fetch(<?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>, { method: 'POST', body });
 					if (!request.ok) throw new Error('Cancellation request failed');
 					const response = await request.json();
 					if (response.success) {
@@ -321,32 +366,43 @@ class WCPPROG_Subscription_Order_Handler {
 	}
 
 	public function cancel_subscription() {
-		$id = isset( $_POST['order_id'] ) ? absint( $_POST['order_id'] ) : 0;
+		if ( ! get_current_user_id() ) {
+			wp_send_json_error( array( 'message' => __( 'Please log in to manage your subscription.', 'woocommerce-paypal-pro-payment-gateway' ) ), 403 );
+		}
+		if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Invalid cancellation request.', 'woocommerce-paypal-pro-payment-gateway' ) ), 405 );
+		}
+		$posted_id = $_POST['order_id'] ?? '';
+		if ( ! is_scalar( $posted_id ) || ! preg_match( '/^[1-9][0-9]*$/D', (string) $posted_id )
+			|| ! isset( $_POST['nonce'] ) || ! is_string( $_POST['nonce'] ) ) {
+			wp_send_json_error( array( 'message' => __( 'Invalid cancellation request.', 'woocommerce-paypal-pro-payment-gateway' ) ), 400 );
+		}
+		$id = absint( $posted_id );
 		check_ajax_referer( 'wcpprog_cancel_subscription_' . $id, 'nonce' );
-		if ( ! current_user_can( 'edit_shop_order', $id ) ) {
+		$order = wc_get_order( $id );
+		if ( ! current_user_can( 'edit_shop_order', $id ) && ! $this->customer_owns_subscription( $order ) ) {
 			wp_send_json_error( array( 'message' => __( 'You cannot edit this subscription.', 'woocommerce-paypal-pro-payment-gateway' ) ), 403 );
 		}
-		$order = wc_get_order( $id );
 		if ( ! $this->can_cancel_subscription( $order ) ) {
 			wp_send_json_error( array( 'message' => __( 'This subscription cannot be cancelled. Please reload the page.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
 		}
 		try {
-			PayPal_Utils::log( 'Admin cancellation requested for subscription order #' . $id, true );
+			PayPal_Utils::log( 'Subscription cancellation requested for subscription order #' . $id, true );
 			$api = new PayPal_Request_API_Injector();
 			$paypal_id = $order->get_meta( '_paypal_subscription_id', true );
 			$details = $api->get_paypal_subscription_details( $paypal_id );
 			$already_cancelled = $details && isset( $details->status ) && 'CANCELLED' === $details->status;
 			if ( ! $already_cancelled && ! $api->cancel_paypal_subscription( $paypal_id ) ) {
-				PayPal_Utils::log( 'Admin cancellation failed for subscription order #' . $id, false );
+				PayPal_Utils::log( 'Subscription cancellation failed for subscription order #' . $id, false );
 				PayPal_Utils::log_array( $api->get_last_error_from_api_call(), false );
-				wp_send_json_error( array( 'message' => __( 'PayPal could not cancel the subscription. Please check the debug log and try again.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+				wp_send_json_error( array( 'message' => __( 'PayPal could not cancel the subscription. Please try again or contact the store for help.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
 			}
 			$order->update_meta_data( '_paypal_subscription_status', 'CANCELLED' );
 			$order->update_status( 'wcpprog-cancelled', __( 'Subscription cancelled in PayPal.', 'woocommerce-paypal-pro-payment-gateway' ) );
-			PayPal_Utils::log( 'Admin cancellation completed for subscription order #' . $id, true );
+			PayPal_Utils::log( 'Subscription cancellation completed for subscription order #' . $id, true );
 			wp_send_json_success();
 		} catch ( Throwable $error ) {
-			PayPal_Utils::log( 'Admin cancellation error for subscription order #' . $id . ': ' . $error->getMessage(), false );
+			PayPal_Utils::log( 'Subscription cancellation error for subscription order #' . $id . ': ' . $error->getMessage(), false );
 			wp_send_json_error( array( 'message' => __( 'Cancellation could not be confirmed. Please reload and try again.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
 		}
 	}
@@ -417,6 +473,136 @@ class WCPPROG_Subscription_Order_Handler {
         $statuses['wc-wcpprog-expired']        = _x( 'Expired', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' );
 
         return $statuses;
+    }
+
+    /** Register with WooCommerce so its account title and endpoint handling apply. */
+    public function subscriptions_wc_query_vars( $vars ) {
+        $vars['subscriptions'] = 'subscriptions';
+        return $vars;
+    }
+
+    public function subscription_endpoint_title( $title ) {
+        global $wp;
+        $value = $wp->query_vars['subscriptions'] ?? '';
+        if ( is_string( $value ) && preg_match( '~^view-subscription/([1-9][0-9]*)/?$~', $value, $matches ) ) {
+            $order = wc_get_order( absint( $matches[1] ) );
+            if ( $this->customer_owns_subscription( $order ) ) {
+                /* translators: %s: Subscription order number. */
+                return sprintf( __( 'Subscription #%s', 'woocommerce-paypal-pro-payment-gateway' ), $order->get_order_number() );
+            }
+        }
+        return __( 'Subscriptions', 'woocommerce-paypal-pro-payment-gateway' );
+    }
+
+    /**
+     * Add the menu item, positioned right after "Orders"
+     *
+     * @return array
+     */
+    public function add_subscriptions_menu_item( $items ) {
+        $new_items = array();
+        foreach ( $items as $key => $label ) {
+            $new_items[ $key ] = $label;
+            if ( 'orders' === $key ) {
+                $new_items['subscriptions'] = __( 'Subscriptions', 'woocommerce-paypal-pro-payment-gateway' );
+            }
+        }
+
+        return $new_items;
+    }
+
+    public function render_subscriptions_endpoint_content() {
+        global $wp;
+        $value = $wp->query_vars['subscriptions'] ?? '';
+
+        if ( ! is_string( $value ) || ( '' !== $value && ! preg_match( '~^(?:view-subscription/[1-9][0-9]*|page/[1-9][0-9]*)/?$~', $value ) ) ) {
+            wc_print_notice( __( 'Invalid subscription page.', 'woocommerce-paypal-pro-payment-gateway' ), 'error' );
+            return;
+        }
+
+        if ( preg_match( '~^view-subscription/([1-9][0-9]*)/?$~', $value, $matches ) ) {
+            $this->render_subscription_detail( absint( $matches[1] ) );
+            return;
+        }
+
+        $page = preg_match( '~^page/([1-9][0-9]*)/?$~', $value, $matches ) ? absint( $matches[1] ) : 1;
+
+        $this->render_subscriptions_list( $page );
+    }
+
+    /** Display the current customer's subscriptions, ten per page. */
+    public function render_subscriptions_list( $page = 1 ) {
+        if ( ! get_current_user_id() ) {
+            wc_print_notice( __( 'Please log in to view your subscriptions.', 'woocommerce-paypal-pro-payment-gateway' ), 'error' );
+            return;
+        }
+
+        $page = max( 1, absint( $page ) );
+
+        $results = wc_get_orders( array(
+            'type' => self::ORDER_TYPE,
+            'customer_id' => get_current_user_id(),
+            'limit' => 10,
+            'page' => $page,
+            'paginate' => true,
+            'orderby' => 'date',
+            'order' => 'DESC',
+        ) );
+
+        wc_get_template( 'myaccount/wcpprog-subscriptions.php', array(
+            'subscriptions' => $results->orders,
+            'page' => $page,
+            'pages' => (int) $results->max_num_pages,
+            'handler' => $this,
+        ), '', WC_PP_PRO_ADDON_PATH . '/templates/' );
+    }
+
+    public function render_customer_order_subscription_link( $order ) {
+        if ( ! is_account_page() || ! is_wc_endpoint_url( 'view-order' )
+            || ! $order instanceof WC_Order || 'shop_order' !== $order->get_type()
+            || ! get_current_user_id() || (int) $order->get_customer_id() !== get_current_user_id() ) {
+            return;
+        }
+        $subscription_id = absint( $order->get_meta( '_wcpprog_subscription_order_id', true ) );
+        $subscription = $subscription_id ? wc_get_order( $subscription_id ) : false;
+        if ( ! $this->customer_owns_subscription( $subscription ) ) {
+            return;
+        }
+        echo '<section class="woocommerce-order-subscription">';
+        echo '<h2>' . esc_html__( 'Subscription', 'woocommerce-paypal-pro-payment-gateway' ) . '</h2>';
+        /* translators: %s: Subscription order number. */
+        echo '<p><a class="woocommerce-button woocommerce-Button button wp-element-button" href="' . esc_url( $this->get_subscription_view_url( $subscription_id ) ) . '">' . esc_html( sprintf( __( 'View Subscription #%s', 'woocommerce-paypal-pro-payment-gateway' ), $subscription->get_order_number() ) ) . '</a></p>';
+        echo '</section>';
+    }
+
+    public function get_subscription_view_url( $sub_order_id ) {
+        return wc_get_endpoint_url( 'subscriptions', 'view-subscription/' . absint( $sub_order_id ), wc_get_page_permalink( 'myaccount' ) );
+    }
+
+    private function customer_owns_subscription( $order ) {
+        return get_current_user_id() > 0 && $order instanceof WC_Order
+            && self::ORDER_TYPE === $order->get_type()
+            && ! $order->has_status( 'trash' )
+            && (int) $order->get_customer_id() === get_current_user_id();
+    }
+
+    /** Show subscription details, received payments and cancellation for its owner. */
+    public function render_subscription_detail( $subscription_id ) {
+        $sub_order = wc_get_order( $subscription_id );
+        if ( ! $this->customer_owns_subscription( $sub_order ) ) {
+            wc_print_notice( __( 'This subscription is unavailable or does not belong to your account.', 'woocommerce-paypal-pro-payment-gateway' ), 'error' );
+            return;
+        }
+
+        wc_get_template( 'emails/wcpprog-subscription-information.php', array(
+                'order' => $sub_order,
+                'customer_account' => true
+        ), '', WC_PP_PRO_ADDON_PATH . '/templates/' );
+
+        if ( $this->can_cancel_subscription( $sub_order ) ) {
+            echo '<h2 class="woocommerce-column__title">' . esc_html__( 'Manage subscription', 'woocommerce-paypal-pro-payment-gateway' ) . '</h2>';
+            $this->render_subscription_manage_meta_box( $sub_order );
+        }
     }
 }
 

@@ -209,7 +209,22 @@ class WCPPROG_Subscription_Related {
         $subscription_plan_html = '';
         if ( $product instanceof WC_Product && self::SUBSCRIPTION_PRODUCT_TYPE === $product->get_type() ) {
             $subscription_plan_html .= $product->get_price_html();
+            $billing_count = (int) $product->get_subscription_recurring_billing_count();
+            if ( $billing_count > 0 ) {
+                $subscription_plan_html .= '<span>' . esc_html( sprintf(
+                    /* translators: %d: number of regular billing cycles, excluding any trial. */
+                    _n( ', stops after %d recurring payment.', ', stops after %d recurring payments.', $billing_count, 'woocommerce-paypal-pro-payment-gateway' ),
+                    $billing_count
+                ) ) . '</span>';
+            }
             $subscription_plan_html .= '<div><small>'.esc_html__('Excluding applicable tax, shipping, coupon discounts and other fees!', 'woocommerce-paypal-pro-payment-gateway').'</small></div>';
+            /**
+             * Filter the subscription plan HTML shared by checkout and customer emails.
+             *
+             * @param string     $subscription_plan_html Subscription plan HTML.
+             * @param WC_Product $product                Subscription product.
+             */
+            $subscription_plan_html = apply_filters( 'wcppprog_subscription_plan_html', $subscription_plan_html, $product );
         }
 
         return array(
@@ -325,7 +340,7 @@ class WCPPROG_Subscription_Related {
                 'description'       => __( 'After how many cycles should billing stop. Leave this field empty (or enter 0) if you want the payment to continue until the subscription is canceled.', 'woocommerce-paypal-pro-payment-gateway' ),
                 'type'              => 'number',
                 'custom_attributes' => array(
-                        'min'  => 1,
+                        'min'  => 0,
                         'step' => 1,
                 ),
         ) );

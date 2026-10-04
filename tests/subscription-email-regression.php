@@ -21,7 +21,9 @@ namespace {
     function absint($value) { return abs((int) $value); }
     function add_action(...$args) {}
     function add_filter(...$args) {}
+    function apply_filters($hook, $value, ...$args) { return $value; }
     function current_user_can(...$args) { return $GLOBALS['allowed']; }
+    function get_current_user_id() { return 5; }
     function is_email($text) { return filter_var($text, FILTER_VALIDATE_EMAIL); }
     function WC() { return $GLOBALS['wc']; }
     function wp_specialchars_decode($text, $flags) { return htmlspecialchars_decode($text, $flags); }
@@ -41,6 +43,9 @@ namespace {
         public static function add_error($text) { self::$errors[] = $text; }
     }
     class WC_Order {
+        public $customer_id = 5;
+        public function get_customer_id() { return $this->customer_id; }
+        public function get_view_order_url() { return '/my-account/view-order/' . $this->get_id(); }
         public $type = 'wcpprog_sub_order';
         public $email = 'buyer@example.com';
         public $status = 'wcpprog-active';
@@ -77,6 +82,8 @@ namespace {
         public function get_order_item_totals() { return array(array('label' => 'Total:', 'value' => '$25.00')); }
     }
     class WC_Product {
+        public static $billing_count = 6;
+        public function get_subscription_recurring_billing_count() { return self::$billing_count; }
         public function get_type() { return WCPPROG_Subscription_Related::SUBSCRIPTION_PRODUCT_TYPE; }
         public function get_price_html() { return '$25.00 / month'; }
     }
@@ -97,7 +104,9 @@ namespace {
     }
     $refund = new class {
         public function get_date_created() { return new DateTime('2026-09-12'); }
-        public function get_meta($key, $single) { return 'REFUND-1'; }
+        public $paypal_id = 'REFUND-1';
+        public function get_meta($key, $single) { return $key === '_wcppprog_paypal_refund_id' ? $this->paypal_id : ''; }
+        public function get_id() { return 90; }
         public function get_amount() { return 5; }
     };
     $GLOBALS['payments'] = array(10 => new TestPayment(10, 25, true), 11 => new TestPayment(11, 25, true, array($refund)), 12 => new TestPayment(12, 25, false), 13 => new TestPayment(13, 0, true));
@@ -125,6 +134,17 @@ namespace {
     require WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-order-handler.php';
     require WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-related.php';
     function check($condition, $message) { if (!$condition) { throw new RuntimeException($message); } }
+    foreach (array(1, 6, 0, '') as $count) {
+        WC_Product::$billing_count = $count;
+        $plan = WCPPROG_Subscription_Related::get_subscription_plan_data(array('data' => new WC_Product()));
+        if ((int) $count > 0) {
+            $expected = $count === 1 ? ', stops after 1 recurring payment.' : ', stops after 6 recurring payments.';
+            check(str_contains($plan['subscription_plan_html'], $expected), 'Checkout plan includes configured billing count');
+        } else {
+            check(!str_contains($plan['subscription_plan_html'], 'stops after'), 'Unlimited billing has no finite payment limit');
+        }
+    }
+    WC_Product::$billing_count = 6;
     $handler = new WCPPROG_Subscription_Order_Handler();
     $order = new WC_Order();
     $defaults = array('send_order_details' => 'Invoice', 'regenerate_download_permissions' => 'Downloads');
@@ -142,7 +162,7 @@ namespace {
     $handler->send_subscription_information($order);
     $message = WC()->mailer->messages[0];
     check($message['recipient'] === 'buyer@example.com', 'Use stored customer billing email');
-    foreach (array('SUB-42', 'I-123&lt;script&gt;', 'Every 2 months', '2026-10-27 14:00', 'Payment Gateway', 'PayPal Checkout', 'Subscription ID', 'Subscription plan', '$25.00 / month', 'Excluding applicable tax, shipping, coupon discounts and other fees!', 'Received Payments', 'Initial Payment', 'Recurring Payment', 'TXN-10', 'TXN-11', 'REFUND-1', '$5.00') as $text) {
+    foreach (array('SUB-42', 'I-123&lt;script&gt;', 'Every 2 months', '2026-10-27 14:00', 'Payment Gateway', 'PayPal Checkout', 'Subscription ID', 'Subscription plan', '$25.00 / month', ', stops after 6 recurring payments.', 'Excluding applicable tax, shipping, coupon discounts and other fees!', 'Received Payments', 'Initial Payment', 'Recurring Payment', 'TXN-10', 'TXN-11', 'REFUND-1', '$5.00') as $text) {
         check(str_contains($message['message'], $text), 'Include subscription information: ' . $text);
     }
     foreach (array('Initial checkout amounts', 'PayPal subscription ID', '/wp-admin/', 'TXN-12', 'TXN-13') as $text) {
@@ -154,6 +174,15 @@ namespace {
     $handler->render_payment_history_meta_box($order);
     $admin_table = ob_get_clean();
     check(str_contains($admin_table, '/wp-admin/order/10') && str_contains($admin_table, 'REFUND-1'), 'Admin table retains links and refund details');
+    ob_start();
+    WCPPROG_Subscription_Order_Handler::render_payment_history_table($order, false, true);
+    $customer_table = ob_get_clean();
+    check(str_contains($customer_table, '/my-account/view-order/10') && !str_contains($customer_table, '/wp-admin/'), 'Account payment links point to customer order views');
+    $GLOBALS['payments'][10]->customer_id = 9;
+    ob_start();
+    WCPPROG_Subscription_Order_Handler::render_payment_history_table($order, false, true);
+    check(!str_contains(ob_get_clean(), '/my-account/view-order/10'), 'Do not link to orders belonging to another customer');
+    $GLOBALS['payments'][10]->customer_id = 5;
     check(!str_contains($message['message'], '<script>'), 'Escape customer/product content');
     foreach (array('My Custom Gateway', 'Customer information', 'Email', 'buyer@example.com', 'Billing address', '12 Billing Street', 'Shipping address', '34 Shipping Street', '+123456789', '+987654321') as $text) {
         check(str_contains($message['message'], $text), 'Include configured gateway title and contact details: ' . $text);
@@ -194,12 +223,20 @@ namespace {
     $saved_payments[10]->meta['_wcpprog_subscription_order_id'] = 42;
     $saved_payments[10]->total = 30;
     WCPPROG_Subscription_Payment_History::order_saved($saved_payments[10]);
-    check($order->meta['_wcpprog_payment_snapshot_10']['amount'] === 30, 'Refresh amount on order save');
+    check($order->meta['_wcppprog_payment_snapshot_10']['amount'] === 30, 'Refresh amount on order save');
+    $refund->paypal_id = '';
     $saved_payments[10]->refunds = array($refund);
     WCPPROG_Subscription_Payment_History::refund_saved(new class {
         public function get_parent_id() { return 10; }
     });
-    check(count($order->meta['_wcpprog_payment_snapshot_10']['refunds']) === 1, 'Refresh refund details on refund save');
+    check(count($order->meta['_wcppprog_payment_snapshot_10']['refunds']) === 1, 'Refresh refund details on refund save');
+    check($order->meta['_wcppprog_payment_snapshot_10']['refunds'][0]['id'] === '#90', 'Refund without PayPal metadata uses local ID without an order-only method');
+    ob_start();
+    $handler->render_payment_history_meta_box($order);
+    check(str_contains(ob_get_clean(), '#90'), 'Render refunds before the webhook attaches PayPal metadata');
+    $refund->paypal_id = 'REFUND-1';
+    WCPPROG_Subscription_Payment_History::refresh_order(10);
+    check($order->meta['_wcppprog_payment_snapshot_10']['refunds'][0]['id'] === 'REFUND-1', 'Persist PayPal refund ID once available');
     $saved_payments[10]->refunds = array();
     $GLOBALS['payments'][90] = new class {
         public function get_type() { return 'shop_order_refund'; }
@@ -208,12 +245,12 @@ namespace {
     WCPPROG_Subscription_Payment_History::before_delete(90);
     unset($GLOBALS['payments'][90]);
     WCPPROG_Subscription_Payment_History::after_delete(90);
-    check(!$order->meta['_wcpprog_payment_snapshot_10']['refunds'], 'Deleting an individual refund refreshes the snapshot');
+    check(!$order->meta['_wcppprog_payment_snapshot_10']['refunds'], 'Deleting an individual refund refreshes the snapshot');
     $saved_payments[10]->refunds = array($refund);
     WCPPROG_Subscription_Payment_History::before_delete(10);
     $saved_payments[10]->refunds = array();
     WCPPROG_Subscription_Payment_History::refresh_order(10);
-    check(count($order->meta['_wcpprog_payment_snapshot_10']['refunds']) === 1, 'Parent deletion preserves refunds while child records are removed');
+    check(count($order->meta['_wcppprog_payment_snapshot_10']['refunds']) === 1, 'Parent deletion preserves refunds while child records are removed');
     unset($GLOBALS['payments'][10]);
     $rows = WCPPROG_Subscription_Payment_History::get_rows($order);
     $initial = array_values(array_filter($rows, static fn($row) => $row['order_id'] === 10))[0];
