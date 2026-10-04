@@ -332,6 +332,7 @@ class PayPal_Webhook_Event_Handler {
 
 		$orders = wc_get_orders( array(
 			'type'       => \WCPPROG_Subscription_Order_Handler::ORDER_TYPE,
+			'status'     => array_keys( array_merge( wc_get_order_statuses(), \WCPPROG_Subscription_Order_Handler::get_subscription_statuses() ) ),
 			'meta_key'   => '_paypal_subscription_id',
 			'meta_value' => $paypal_sub_id,
 			'limit'      => 1

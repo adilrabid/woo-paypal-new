@@ -13,6 +13,11 @@ class WCPPROG_WC_Subscription_Order extends WC_Order {
 		return WCPPROG_Subscription_Order_Handler::ORDER_TYPE;
 	}
 
+	/** Keep status transitions valid in webhooks, cron and frontend requests too. */
+	protected function get_valid_statuses() {
+		return array_keys( WCPPROG_Subscription_Order_Handler::get_subscription_statuses() );
+	}
+
 	public function set_next_payment_date( $date ) {
 		$this->update_meta_data( '_next_payment_date', sanitize_text_field($date) );
 	}

@@ -14,6 +14,8 @@ namespace {
     define('WC_PP_PRO_ADDON_PATH', dirname(__DIR__) . '/woocommerce-paypal-pro');
     function add_action(...$args) { $GLOBALS['hooks'][$args[0]] = $args[1]; } function add_filter(...$args) {}
     function __($text, ...$args) { return $text; }
+    function _x($text, ...$args) { return $text; }
+    function wc_get_order_statuses() { return array('wc-pending' => 'Pending payment', 'wc-completed' => 'Completed'); }
     function esc_html($text) { return htmlspecialchars((string) $text, ENT_QUOTES); }
     function esc_attr($text) { return esc_html($text); }
     function esc_html__($text, ...$args) { return esc_html($text); }
@@ -71,7 +73,7 @@ namespace {
     $GLOBALS['results'] = (object) array('orders' => array($order), 'max_num_pages' => 3);
     $html = output(fn() => $handler->render_subscriptions_list(2));
     check($GLOBALS['query']['customer_id'] === 5 && $GLOBALS['query']['limit'] === 10 && $GLOBALS['query']['page'] === 2 && $GLOBALS['query']['paginate'], 'Query is paginated and customer-scoped');
-    foreach (array('Date', 'I-123&lt;script&gt;', 'page/1', 'page/3', 'view-subscription/7', 'View') as $text) { check(str_contains($html, $text), 'List contains ' . $text); }
+    foreach (array('Date', 'I-123&lt;script&gt;', '/wcppprog-subscriptions/page/1', '/wcppprog-subscriptions/page/3', '/wcppprog-subscriptions/view-subscription/7', 'View') as $text) { check(str_contains($html, $text), 'List contains ' . $text); }
     $html = output(fn() => $handler->render_subscription_detail(7));
     check(str_contains($html, 'DETAILS') && str_contains($html, 'Cancel subscription') && $GLOBALS['template_args']['customer_account'], 'Owner gets details and cancellation');
     check(str_contains($html, 'fetch("\/?wc-ajax=wcpprog_cancel_subscription"'), 'Customer uses frontend WooCommerce AJAX endpoint');
@@ -127,7 +129,7 @@ namespace {
     check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$calls === 1 && $order->status === 'wcpprog-active', 'Owner can request cancellation; API failure preserves status');
     $order->type = 'shop_order';
     check(!str_contains(output(fn() => $handler->render_subscription_detail(7)), 'DETAILS'), 'Normal order cannot be viewed as subscription');
-    $GLOBALS['wp'] = (object) array('query_vars' => array('subscriptions' => 'view-subscription/7bad'));
+    $GLOBALS['wp'] = (object) array('query_vars' => array('wcppprog-subscriptions' => 'view-subscription/7bad'));
     check(str_contains(output(fn() => $handler->render_subscriptions_endpoint_content()), 'Invalid subscription page'), 'Reject malformed detail URL');
     $GLOBALS['results']->orders = array();
     check(str_contains(output(fn() => $handler->render_subscriptions_list()), 'no subscriptions yet'), 'Empty list is explained');
@@ -138,7 +140,7 @@ namespace {
         public function get_meta($key, $single) { return $key === '_wcpprog_subscription_order_id' ? 7 : ''; }
     };
     $link = output(fn() => $handler->render_customer_order_subscription_link($payment));
-    check(str_contains($link, 'View Subscription #7') && str_contains($link, '/subscriptions/view-subscription/7'), 'Linked payment shows customer subscription URL');
+    check(str_contains($link, 'View Subscription #7') && str_contains($link, '/wcppprog-subscriptions/view-subscription/7'), 'Linked payment shows customer subscription URL');
     $order->owner = 9;
     check(output(fn() => $handler->render_customer_order_subscription_link($payment)) === '', 'Hide subscriptions owned by another customer');
     $order->owner = 5;

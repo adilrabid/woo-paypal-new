@@ -7,6 +7,8 @@ namespace {
     define('ABSPATH', __DIR__);
     define('WC_PP_PRO_ADDON_PATH', dirname(__DIR__) . '/woocommerce-paypal-pro');
     function __($text, ...$args) { return $text; }
+    function _x($text, ...$args) { return $text; }
+    function wc_get_order_statuses() { return array('wc-pending' => 'Pending payment', 'wc-completed' => 'Completed'); }
     function _n($single, $plural, $count, ...$args) { return $count === 1 ? $single : $plural; }
     function esc_html($text) { return htmlspecialchars((string) $text, ENT_QUOTES); }
     function esc_html_e($text, ...$args) { echo esc_html($text); }

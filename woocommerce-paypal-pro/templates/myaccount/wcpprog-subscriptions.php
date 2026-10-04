@@ -12,7 +12,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-$list_url = wc_get_account_endpoint_url( 'subscriptions' );
+$list_url = wc_get_account_endpoint_url( 'wcppprog-subscriptions' );
 $wp_button_class = function_exists( 'wc_wp_theme_get_element_class_name' ) ? ' ' . wc_wp_theme_get_element_class_name( 'button' ) : '';
 ?>
 <?php if ( ! $subscriptions ) : ?>
@@ -39,7 +39,7 @@ $wp_button_class = function_exists( 'wc_wp_theme_get_element_class_name' ) ? ' '
                     <?php if ( $date ) : ?><time datetime="<?php echo esc_attr( $date->date( 'c' ) ); ?>"><?php echo esc_html( wc_format_datetime( $date ) ); ?></time><?php else : ?>—<?php endif; ?>
                 </td>
                 <td class="woocommerce-orders-table__cell woocommerce-orders-table__cell-order-status" data-title="<?php echo esc_attr( $columns['status'] ); ?>">
-                    <?php echo esc_html( wc_get_order_status_name( $subscription->get_status() ) ); ?>
+                    <?php echo esc_html( WCPPROG_Subscription_Order_Handler::get_subscription_status_name( $subscription->get_status() ) ); ?>
                 </td>
                 <td class="woocommerce-orders-table__cell woocommerce-orders-table__cell-order-subscription-id" data-title="<?php echo esc_attr( $columns['subscription'] ); ?>">
                     <?php echo esc_html( $subscription->get_paypal_subscription_id() ?: '—' ); ?>
@@ -53,8 +53,8 @@ $wp_button_class = function_exists( 'wc_wp_theme_get_element_class_name' ) ? ' '
     </table>
     <?php if ( $pages > 1 ) : ?>
         <div role="navigation" class="woocommerce-pagination woocommerce-pagination--without-numbers woocommerce-Pagination" aria-label="<?php esc_attr_e( 'Subscription pages', 'woocommerce-paypal-pro-payment-gateway' ); ?>">
-            <?php if ( $page > 1 ) : ?><a class="woocommerce-button woocommerce-button--previous woocommerce-Button woocommerce-Button--previous button<?php echo esc_attr( $wp_button_class ); ?>" href="<?php echo esc_url( wc_get_endpoint_url( 'subscriptions', 'page/' . ( $page - 1 ), wc_get_page_permalink( 'myaccount' ) ) ); ?>"><?php esc_html_e( 'Previous', 'woocommerce-paypal-pro-payment-gateway' ); ?></a><?php endif; ?>
-            <?php if ( $page < $pages ) : ?><a class="woocommerce-button woocommerce-button--next woocommerce-Button woocommerce-Button--next button<?php echo esc_attr( $wp_button_class ); ?>" href="<?php echo esc_url( wc_get_endpoint_url( 'subscriptions', 'page/' . ( $page + 1 ), wc_get_page_permalink( 'myaccount' ) ) ); ?>"><?php esc_html_e( 'Next', 'woocommerce-paypal-pro-payment-gateway' ); ?></a><?php endif; ?>
+            <?php if ( $page > 1 ) : ?><a class="woocommerce-button woocommerce-button--previous woocommerce-Button woocommerce-Button--previous button<?php echo esc_attr( $wp_button_class ); ?>" href="<?php echo esc_url( wc_get_endpoint_url( 'wcppprog-subscriptions', 'page/' . ( $page - 1 ), wc_get_page_permalink( 'myaccount' ) ) ); ?>"><?php esc_html_e( 'Previous', 'woocommerce-paypal-pro-payment-gateway' ); ?></a><?php endif; ?>
+            <?php if ( $page < $pages ) : ?><a class="woocommerce-button woocommerce-button--next woocommerce-Button woocommerce-Button--next button<?php echo esc_attr( $wp_button_class ); ?>" href="<?php echo esc_url( wc_get_endpoint_url( 'wcppprog-subscriptions', 'page/' . ( $page + 1 ), wc_get_page_permalink( 'myaccount' ) ) ); ?>"><?php esc_html_e( 'Next', 'woocommerce-paypal-pro-payment-gateway' ); ?></a><?php endif; ?>
         </div>
     <?php endif; ?>
 <?php endif; ?>

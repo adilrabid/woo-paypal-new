@@ -11,7 +11,7 @@ defined( 'ABSPATH' ) || exit;
 
 //$details    = array(
 //    __( 'Subscription', 'woocommerce-paypal-pro-payment-gateway' ) => '#' . $order->get_order_number(),
-//    __( 'Status', 'woocommerce-paypal-pro-payment-gateway' )       => wc_get_order_status_name( $order->get_status() ),
+//    __( 'Status', 'woocommerce-paypal-pro-payment-gateway' )       => WCPPROG_Subscription_Order_Handler::get_subscription_status_name( $order->get_status() ),
 //);
 
 $paypal_id  = $order->get_meta( '_paypal_subscription_id', true );
@@ -66,11 +66,13 @@ if ( $next_payment && $order->has_status( array( 'wcpprog-active', 'wcpprog-tria
 ?>
 
 <p>
-    <?php echo sprintf(
-    "Subscription #%s was created on %s and is currently %s.",
+    <?php
+    /* translators: 1: Subscription order number, 2: Creation date, 3: Subscription status. */
+    echo sprintf(
+    esc_html__( 'Subscription #%1$s was created on %2$s and is currently %3$s.', 'woocommerce-paypal-pro-payment-gateway' ),
     '<mark class="order-number">'.esc_html($order->get_order_number()).'</mark>',
     '<mark class="order-date"><time datetime="'.esc_attr( $order->get_date_created()->date( 'c' )).'">'. esc_html(wc_format_datetime( $order->get_date_created() )) .'</time></mark>',
-    '<mark class="order-status">'.esc_html(wc_get_order_status_name($order->get_status())).'</mark>'
+    '<mark class="order-status">'.esc_html(WCPPROG_Subscription_Order_Handler::get_subscription_status_name($order->get_status())).'</mark>'
     ); ?>
 </p>
 

@@ -18,7 +18,7 @@ class WCPPROG_Subscription_Order_Handler {
 
         add_action( 'init', array( $this, 'init_time_tasks' ) );
         add_action( 'wp_loaded', array( $this, 'maybe_refresh_subscription_rewrite_rules' ), 20 );
-		add_filter( 'wc_order_statuses', array( $this, 'add_statuses_to_list' ) );
+		add_filter( 'wc_order_statuses', array( $this, 'add_statuses_to_list' ), PHP_INT_MAX );
 		add_action( 'woocommerce_admin_order_data_after_order_details', array( $this, 'render_subscription_id_in_order_details' ) );
 		add_action( 'add_meta_boxes', array( $this, 'add_cancellation_meta_box' ), 10, 2 );
 		add_action( 'add_meta_boxes', array( $this, 'add_payment_history_meta_box' ), 10, 2 );
@@ -33,9 +33,9 @@ class WCPPROG_Subscription_Order_Handler {
 		add_action( 'woocommerce_order_action_wcpprog_send_subscription_information', array( $this, 'send_subscription_information' ) );
 
         add_filter( 'woocommerce_get_query_vars', array( $this, 'subscriptions_wc_query_vars' ) );
-        add_filter( 'woocommerce_endpoint_subscriptions_title', array( $this, 'subscription_endpoint_title' ) );
+        add_filter( 'woocommerce_endpoint_wcppprog-subscriptions_title', array( $this, 'subscription_endpoint_title' ) );
         add_filter( 'woocommerce_account_menu_items', array($this, 'add_subscriptions_menu_item') );
-        add_action( 'woocommerce_account_subscriptions_endpoint', array($this, 'render_subscriptions_endpoint_content') );
+        add_action( 'woocommerce_account_wcppprog-subscriptions_endpoint', array($this, 'render_subscriptions_endpoint_content') );
         add_action( 'woocommerce_order_details_after_customer_details', array( $this, 'render_customer_order_subscription_link' ) );
 	}
 
@@ -45,7 +45,7 @@ class WCPPROG_Subscription_Order_Handler {
         $this->register_statuses();
 
         // Adds a endpoint publicly accessible for subscription pages for showing subscription orders in front-end customer account dashboard.
-        add_rewrite_endpoint( 'subscriptions', EP_ROOT | EP_PAGES );
+        add_rewrite_endpoint( 'wcppprog-subscriptions', EP_ROOT | EP_PAGES );
     }
 
     /** Refresh cached routes only when our endpoint is missing, including after upgrades. */
@@ -55,7 +55,7 @@ class WCPPROG_Subscription_Order_Handler {
             return;
         }
         foreach ( (array) get_option( 'rewrite_rules', array() ) as $query ) {
-            if ( is_string( $query ) && false !== strpos( $query, '&subscriptions=' ) ) {
+            if ( is_string( $query ) && false !== strpos( $query, '&wcppprog-subscriptions=' ) ) {
                 return;
             }
         }
@@ -464,26 +464,46 @@ class WCPPROG_Subscription_Order_Handler {
 		) );
 	}
 
-    public function add_statuses_to_list( $statuses ) {
-        $statuses['wc-wcpprog-trial']          = _x( 'Trialing', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' );
-        $statuses['wc-wcpprog-active']         = _x( 'Active', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' );
-        $statuses['wc-wcpprog-on-hold']        = _x( 'On hold', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' );
-        $statuses['wc-wcpprog-pending-cancel'] = _x( 'Pending cancellation', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' );
-        $statuses['wc-wcpprog-cancelled']      = _x( 'Cancelled', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' );
-        $statuses['wc-wcpprog-expired']        = _x( 'Expired', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' );
+    /** Subscription lifecycle statuses, independent of the current admin screen. */
+    public static function get_subscription_statuses() {
+        return array(
+            'wc-wcpprog-trial'          => _x( 'Trialing', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-wcpprog-active'         => _x( 'Active', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-wcpprog-on-hold'        => _x( 'On hold', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-wcpprog-pending-cancel' => _x( 'Pending cancellation', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-wcpprog-cancelled'      => _x( 'Cancelled', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-wcpprog-expired'        => _x( 'Expired', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+        );
+    }
 
+    public static function get_subscription_status_name( $status ) {
+        $key = 'wc-' . preg_replace( '/^wc-/', '', $status );
+        $statuses = self::get_subscription_statuses();
+        return $statuses[ $key ] ?? wc_get_order_status_name( $status );
+    }
+
+    /** Use only our statuses on our legacy or HPOS subscription list/edit screens. */
+    public function add_statuses_to_list( $statuses ) {
+        $screen = is_admin() && function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+        if ( $screen && in_array( $screen->id, array(
+            self::ORDER_TYPE,
+            'edit-' . self::ORDER_TYPE,
+            'woocommerce_page_wc-orders--' . self::ORDER_TYPE,
+        ), true ) ) {
+            $statuses = self::get_subscription_statuses();
+        }
         return $statuses;
     }
 
     /** Register with WooCommerce so its account title and endpoint handling apply. */
     public function subscriptions_wc_query_vars( $vars ) {
-        $vars['subscriptions'] = 'subscriptions';
+        $vars['wcppprog-subscriptions'] = 'wcppprog-subscriptions';
         return $vars;
     }
 
     public function subscription_endpoint_title( $title ) {
         global $wp;
-        $value = $wp->query_vars['subscriptions'] ?? '';
+        $value = $wp->query_vars['wcppprog-subscriptions'] ?? '';
         if ( is_string( $value ) && preg_match( '~^view-subscription/([1-9][0-9]*)/?$~', $value, $matches ) ) {
             $order = wc_get_order( absint( $matches[1] ) );
             if ( $this->customer_owns_subscription( $order ) ) {
@@ -504,7 +524,7 @@ class WCPPROG_Subscription_Order_Handler {
         foreach ( $items as $key => $label ) {
             $new_items[ $key ] = $label;
             if ( 'orders' === $key ) {
-                $new_items['subscriptions'] = __( 'Subscriptions', 'woocommerce-paypal-pro-payment-gateway' );
+                $new_items['wcppprog-subscriptions'] = __( 'Subscriptions', 'woocommerce-paypal-pro-payment-gateway' );
             }
         }
 
@@ -513,7 +533,7 @@ class WCPPROG_Subscription_Order_Handler {
 
     public function render_subscriptions_endpoint_content() {
         global $wp;
-        $value = $wp->query_vars['subscriptions'] ?? '';
+        $value = $wp->query_vars['wcppprog-subscriptions'] ?? '';
 
         if ( ! is_string( $value ) || ( '' !== $value && ! preg_match( '~^(?:view-subscription/[1-9][0-9]*|page/[1-9][0-9]*)/?$~', $value ) ) ) {
             wc_print_notice( __( 'Invalid subscription page.', 'woocommerce-paypal-pro-payment-gateway' ), 'error' );
@@ -541,6 +561,7 @@ class WCPPROG_Subscription_Order_Handler {
 
         $results = wc_get_orders( array(
             'type' => self::ORDER_TYPE,
+            'status' => array_keys( array_merge( wc_get_order_statuses(), self::get_subscription_statuses() ) ),
             'customer_id' => get_current_user_id(),
             'limit' => 10,
             'page' => $page,
@@ -576,7 +597,7 @@ class WCPPROG_Subscription_Order_Handler {
     }
 
     public function get_subscription_view_url( $sub_order_id ) {
-        return wc_get_endpoint_url( 'subscriptions', 'view-subscription/' . absint( $sub_order_id ), wc_get_page_permalink( 'myaccount' ) );
+        return wc_get_endpoint_url( 'wcppprog-subscriptions', 'view-subscription/' . absint( $sub_order_id ), wc_get_page_permalink( 'myaccount' ) );
     }
 
     private function customer_owns_subscription( $order ) {
