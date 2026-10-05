@@ -16,6 +16,7 @@ namespace {
     define('WC_PP_PRO_ADDON_PATH', dirname(__DIR__) . '/woocommerce-paypal-pro');
     function __($text, ...$args) { return $text; }
     function add_action(...$args) {}
+    function wc_get_order_statuses() { return array('wc-pending' => 'Pending', 'wc-completed' => 'Completed'); }
     function WC() { return $GLOBALS['wc']; }
     function wp_strip_all_tags($text) { return strip_tags($text); }
     function is_email($text) { return filter_var($text, FILTER_VALIDATE_EMAIL); }
@@ -25,14 +26,26 @@ namespace {
     function sanitize_text_field($text) { return $text; }
     function absint($value) { return abs((int) $value); }
     function get_current_user_id() { return $GLOBALS['uid'] ?? 1; }
-    function wc_get_orders($args) { return array($GLOBALS['approval_order']); }
+    function wc_get_orders($args) {
+        if (($args['type'] ?? '') === 'wcpprog_sub_order') { return $GLOBALS['existing_subscriptions'] ?? array(); }
+        return isset($GLOBALS['approval_order']) ? array($GLOBALS['approval_order']) : array();
+    }
+    function wc_get_order($id) { return $GLOBALS['parent']; }
+    function add_option($key, $value, ...$args) { if (isset($GLOBALS['locks'][$key])) { return false; } $GLOBALS['locks'][$key] = $value; return true; }
+    function delete_option($key) { unset($GLOBALS['locks'][$key]); }
+    class WP_Error { public function __construct(public $code, public $message) {} public function get_error_message() { return $this->message; } }
+    function is_wp_error($value) { return $value instanceof WP_Error; }
+    class WCPPROG_Subscription_Order_Handler { const ORDER_TYPE = 'wcpprog_sub_order'; public static function get_subscription_statuses() { return array('wc-wcpprog-active' => 'Active'); } }
     function wp_json_encode($value) { return json_encode($value); }
     class WC_Payment_Gateway {}
     class WCPPROG_Subscription_Related { const SUBSCRIPTION_PRODUCT_TYPE = 'subscription'; }
     class WCPPROG_Subscription_Product {
         public function get_type() { return 'subscription'; }
         public function is_purchasable() { return true; }
-        public function get_meta($key, $single) { return strpos($key, 'type') !== false ? 'month' : 1; }
+        public function get_wcppprog_sub_recurring_billing_interval() { return 1; }
+        public function get_wcppprog_sub_recurring_billing_interval_type() { return 'month'; }
+        public function get_wcppprog_sub_trial_period() { return 1; }
+        public function get_wcppprog_sub_trial_period_type() { return 'month'; }
     }
     class WC_Validation {
         public static function is_postcode($value, $country) { return (bool) preg_match('/^\d{5}$/', $value); }
@@ -77,11 +90,12 @@ namespace {
     }
     $parent = new class {
         public function get_id() { return 10; }
-        public function get_meta($key, $single) { return ''; }
+        public function get_meta($key, $single) { return array('_wcppprog_paypal_subscription_id' => 'I-TEST', '_wcpprog_paypal_plan_id' => 'P-TEST', '_wcpprog_has_trial' => 'no')[$key] ?? ''; }
         public function get_customer_id() { return 1; }
         public function get_payment_method() { return 'paypal_checkout'; }
         public function get_payment_method_title() { return 'My Custom Gateway'; }
         public function get_currency() { return 'EUR'; }
+        public function get_total() { return 10; }
         public function get_prices_include_tax() { return true; }
         public function get_cart_tax() { return '9.50'; }
         public function get_shipping_tax() { return '0.80'; }
@@ -92,6 +106,7 @@ namespace {
         public function update_meta_data(...$args) {}
         public function save() {}
     };
+    $GLOBALS['parent'] = $parent;
     \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utility_IPN_Related::create_subscription_order($parent, array(), array(), array());
     $subscription = WCPPROG_WC_Subscription_Order::$last;
     check(count($subscription->items) === 5, 'All monetary item types must reach the subscription');
@@ -203,5 +218,53 @@ namespace {
     \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utility_IPN_Related::create_subscription_order($parent, array(), array('status' => 'EXPIRED'), array());
     check(WCPPROG_WC_Subscription_Order::$last->values['set_status'] === 'wcpprog-expired', 'Preserve expired status at creation');
     check(WCPPROG_WC_Subscription_Order::$last->values['set_next_payment_date'] === '', 'Completed subscription has no next payment');
+    // Both browser approval and webhook recovery use the same creation lock and lookup.
+    $existing = WCPPROG_WC_Subscription_Order::$last;
+    $GLOBALS['existing_subscriptions'] = array($existing);
+    check(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utility_IPN_Related::create_subscription_order($parent, array(), array(), array()) === $existing, 'Reuse subscription after interrupted parent linking');
+    $lock = 'wcpprog_subscription_create_' . md5('I-TEST');
+    $GLOBALS['locks'][$lock] = time();
+    check(is_wp_error(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utility_IPN_Related::create_subscription_order($parent, array(), array(), array())), 'Concurrent creator must retry');
+    unset($GLOBALS['locks'][$lock]);
+    $GLOBALS['existing_subscriptions'] = array();
+    require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-webhook-event-handler.php';
+    function wp_die($message, $title, $args) { throw new \RuntimeException((string) $args['response']); }
+    $webhook = new \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Webhook_Event_Handler();
+    $recover = new \ReflectionMethod($webhook, 'recover_subscription_order');
+    $recover->setAccessible(true);
+    unset($GLOBALS['approval_order']);
+    check($recover->invoke($webhook, 'FOREIGN-ID') === null, 'Ignore unrelated subscriptions');
+    $sale = new \ReflectionMethod($webhook, 'process_subscription_sale');
+    $sale->setAccessible(true);
+    check($sale->invoke($webhook, 'sale_completed', array('resource' => array('billing_agreement_id' => 'FOREIGN-ID', 'id' => 'SALE-X')), 'sandbox') === null, 'Unrelated payment is acknowledged without recovery');
+    $receive = new \ReflectionMethod($webhook, 'handle_subscription_payment_received');
+    $receive->setAccessible(true);
+    $foreign_lock = 'wcpprog_payment_lock_' . md5('sandboxFOREIGN-ID');
+    $GLOBALS['locks'][$foreign_lock] = 123;
+    check($receive->invoke($webhook, 'sale_completed', array('resource' => array('billing_agreement_id' => 'FOREIGN-ID', 'id' => 'SALE-X')), 'sandbox') === null, 'Unknown payment ignores an existing lock instead of returning 503');
+    check($GLOBALS['locks'][$foreign_lock] === 123, 'Unknown payment leaves existing lock untouched');
+    unset($GLOBALS['locks'][$foreign_lock]);
+    $GLOBALS['approval_order'] = $parent;
+    $own_lock = 'wcpprog_payment_lock_' . md5('sandboxI-TEST');
+    $GLOBALS['locks'][$own_lock] = 123;
+    $status = null;
+    try { $receive->invoke($webhook, 'sale_completed', array('resource' => array('billing_agreement_id' => 'I-TEST', 'id' => 'SALE-1')), 'sandbox'); } catch (\RuntimeException $error) { $status = $error->getMessage(); }
+    check($status === '503', 'Our concurrent payment still requests retry');
+    unset($GLOBALS['locks'][$own_lock]);
+    $GLOBALS['approval_order'] = $parent;
+    \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$details = (object) array('id' => 'I-TEST', 'plan_id' => 'P-TEST', 'status' => 'ACTIVE');
+    check($recover->invoke($webhook, 'I-TEST') instanceof WCPPROG_WC_Subscription_Order, 'Recover approved checkout without browser callback');
+    $activate = new \ReflectionMethod($webhook, 'handle_subscription_status_update');
+    $activate->setAccessible(true);
+    \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$details = (object) array('id' => 'I-TEST', 'plan_id' => 'P-TEST', 'status' => 'CANCELLED');
+    $activate->invoke($webhook, 'activated', array('resource' => array('id' => 'I-TEST')), 'sandbox');
+    check(WCPPROG_WC_Subscription_Order::$last->values['set_status'] === 'wcpprog-cancelled', 'Delayed activation recovery respects current PayPal state');
+    foreach (array(false, (object) array('id' => 'I-TEST', 'plan_id' => 'P-WRONG', 'status' => 'ACTIVE'), (object) array('id' => 'I-TEST', 'plan_id' => 'P-TEST', 'status' => 'APPROVAL_PENDING')) as $details) {
+        \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$details = $details;
+        $status = null;
+        try { $recover->invoke($webhook, 'I-TEST'); } catch (\RuntimeException $error) { $status = $error->getMessage(); }
+        check($status === '503', 'Our unverified checkout requests retry');
+    }
+    check(empty($GLOBALS['locks']), 'Creation locks released');
     echo "Subscription checkout regression checks passed.\n";
 }

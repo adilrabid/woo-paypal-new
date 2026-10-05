@@ -116,6 +116,50 @@ class PayPal_Webhook_Event_Handler {
 		exit;
     }
 
+	/** Locate our initial checkout without making API calls or acquiring locks. */
+	private function get_subscription_checkout_order( $id ) {
+		if ( ! $id ) { return null; }
+		$orders = wc_get_orders( array(
+			'type' => 'shop_order', 'payment_method' => 'paypal_checkout',
+			'meta_key' => '_wcppprog_paypal_subscription_id', 'meta_value' => $id,
+			'orderby' => 'ID', 'order' => 'ASC', 'limit' => -1,
+		) );
+		foreach ( $orders as $order ) {
+			if ( 'paypal_checkout' === $order->get_payment_method()
+				&& $order->get_meta( '_wcpprog_paypal_plan_id', true )
+				&& in_array( $order->get_meta( '_wcpprog_has_trial', true ), array( 'yes', 'no' ), true ) ) {
+				return $order;
+			}
+		}
+		return null;
+	}
+
+	/** Return null for unrelated events; retry failures only for a checkout we own. */
+	private function recover_subscription_order( $id ) {
+		$parent = $this->get_subscription_checkout_order( $id );
+		if ( ! $parent ) { return null; }
+		try {
+			$api = new PayPal_Request_API_Injector();
+			$details = $api->get_paypal_subscription_details( $id );
+			if ( ! $details || ( $details->id ?? '' ) !== $id
+				|| ( $details->plan_id ?? '' ) !== $parent->get_meta( '_wcpprog_paypal_plan_id', true )
+				|| ! in_array( $details->status ?? '', array( 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'EXPIRED' ), true ) ) {
+				throw new \RuntimeException( 'PayPal subscription could not be verified for recovery.' );
+			}
+			$subscription = PayPal_Utility_IPN_Related::create_subscription_order( $parent, array(), json_decode( wp_json_encode( $details ), true ), array() );
+			if ( is_wp_error( $subscription ) ) {
+				throw new \RuntimeException( $subscription->get_error_message() );
+			}
+			if ( (float) $parent->get_total() <= 0 && 'ACTIVE' === $details->status ) {
+				$parent->payment_complete();
+			}
+			return $subscription;
+		} catch ( \Throwable $error ) {
+			PayPal_Utils::log( 'Subscription recovery: ' . $error->getMessage(), false );
+			wp_die( 'Subscription checkout is not ready. Retry later.', '', array( 'response' => 503 ) );
+		}
+	}
+
 	/**
 	 * Handle subscription status update.
 	 */
@@ -125,6 +169,11 @@ class PayPal_Webhook_Event_Handler {
 		$id       = isset( $resource['id'] ) ? $resource['id'] : '';
 		$sub_order      = $id ? $this->get_subscription_order_by_paypal_sub_id( $id ) : null;
 
+		if ( ! $sub_order && 'activated' === $status ) {
+			// Recovery uses current PayPal state, not a potentially delayed activation event.
+			$this->recover_subscription_order( $id );
+			return;
+		}
 		if ( ! $sub_order ) {
 			PayPal_Utils::log( 'Webhook: status event ignored because subscription was not found.', true );
 
@@ -163,6 +212,12 @@ class PayPal_Webhook_Event_Handler {
 		if ( ! $paypal_sub_id || empty( $event['resource']['id'] ) ) {
 			return;
 		}
+		// Unrelated events must not contend for payment locks or request retries.
+		if ( ! $this->get_subscription_order_by_paypal_sub_id( $paypal_sub_id )
+			&& ! $this->get_subscription_checkout_order( $paypal_sub_id ) ) {
+			PayPal_Utils::log( 'Webhook: unrelated subscription payment ignored.', true );
+			return;
+		}
 		$lock = 'wcpprog_payment_lock_' . md5( $mode . $paypal_sub_id );
 		if ( ! add_option( $lock, time(), '', false ) ) {
 			wp_die( 'Subscription payment is being processed. Retry later.', '', array( 'response' => 503 ) );
@@ -190,8 +245,11 @@ class PayPal_Webhook_Event_Handler {
 		PayPal_Utils::log( 'Webhook: processing recurring payment ' . $transaction_id . ' for PayPal subscription ' . $paypal_sub_id, true );
 
 		if ( ! $sub_order ) {
-			PayPal_Utils::log( 'Webhook: checkout subscription not ready; requesting delivery retry for ' . $paypal_sub_id, true );
-			wp_die( 'Subscription checkout is not ready. Retry later.', '', array( 'response' => 503 ) );
+			$sub_order = $this->recover_subscription_order( $paypal_sub_id );
+			if ( ! $sub_order ) {
+				PayPal_Utils::log( 'Webhook: unrelated subscription payment ignored.', true );
+				return;
+			}
 		}
 		if ( ! $transaction_id ) {
 			PayPal_Utils::log( 'Webhook: recurring payment ignored because required data is missing.', true );
@@ -239,7 +297,7 @@ class PayPal_Webhook_Event_Handler {
 			if ( '' !== $amount ) {
 				$order->set_total( (float) $amount );
 			}
-			$order->update_meta_data( '_paypal_subscription_id', $paypal_sub_id );
+			$order->update_meta_data( '_wcppprog_paypal_subscription_id', $paypal_sub_id );
 			$order->update_meta_data( '_paypal_transaction_id', $transaction_id );
 			$order->update_meta_data( '_wcpprog_subscription_order_id', $sub_order->get_id() );
 			$order->save();
@@ -333,7 +391,7 @@ class PayPal_Webhook_Event_Handler {
 		$orders = wc_get_orders( array(
 			'type'       => \WCPPROG_Subscription_Order_Handler::ORDER_TYPE,
 			'status'     => array_keys( array_merge( wc_get_order_statuses(), \WCPPROG_Subscription_Order_Handler::get_subscription_statuses() ) ),
-			'meta_key'   => '_paypal_subscription_id',
+			'meta_key'   => '_wcppprog_paypal_subscription_id',
 			'meta_value' => $paypal_sub_id,
 			'limit'      => 1
 		) );

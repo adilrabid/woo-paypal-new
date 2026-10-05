@@ -101,6 +101,7 @@ Please visit the following documentation pages to view screenshots:
 = WIP =
 - Description updated to include PayPal checkout features and details.
 - Subscription feature added for PayPal PPCP.
+- PayPal Checkout button on cart page does not render now.
 
 = 4.0.0 =
 - PayPal Commerce Platform (PPCP) payment option added. [PayPal Checkout setup and configuration documentation](https://wp-ecommerce.net/woocommerce-paypal-checkout-paypal-pro)

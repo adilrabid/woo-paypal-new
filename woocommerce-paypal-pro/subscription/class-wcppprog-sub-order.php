@@ -27,11 +27,11 @@ class WCPPROG_WC_Subscription_Order extends WC_Order {
 	}
 
 	public function set_paypal_subscription_id( $date ) {
-		$this->update_meta_data( '_paypal_subscription_id', sanitize_text_field($date) );
+		$this->update_meta_data( '_wcppprog_paypal_subscription_id', sanitize_text_field($date) );
 	}
 
 	public function get_paypal_subscription_id() {
-		return $this->get_meta( '_paypal_subscription_id', true );
+		return $this->get_meta( '_wcppprog_paypal_subscription_id', true );
 	}
 
 	public function get_parent_order_id_ref() {

@@ -14,7 +14,7 @@ defined( 'ABSPATH' ) || exit;
 //    __( 'Status', 'woocommerce-paypal-pro-payment-gateway' )       => WCPPROG_Subscription_Order_Handler::get_subscription_status_name( $order->get_status() ),
 //);
 
-$paypal_id  = $order->get_meta( '_paypal_subscription_id', true );
+$paypal_id  = $order->get_meta( '_wcppprog_paypal_subscription_id', true );
 $parent     = wc_get_order( $order->get_parent_order_id_ref() );
 $gateway_id = $order->get_payment_method() ?: ( $parent ? $parent->get_payment_method() : '' );
 $gateway_id = $gateway_id ?: ( $paypal_id ? 'paypal_checkout' : '' );

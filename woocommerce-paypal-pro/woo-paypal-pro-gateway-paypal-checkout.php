@@ -67,42 +67,9 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
         // Always add these hooks, but check availability in the methods themselves
         add_action('wp_enqueue_scripts', array($this, 'payment_scripts'));
 
-        // For cart block, we need to use JavaScript to inject buttons
-        add_action('wp_footer', array($this, 'render_paypal_button_on_cart_block'));
-
-        // For cart shortcode, we need to use woocommerce hook to render buttons
-        add_action('woocommerce_after_cart_totals', array($this, 'render_paypal_button_on_cart_shortcode'), 15);
-
         if ( wp_doing_ajax() && is_admin() && current_user_can( 'manage_options' ) ) {
             $this->init_webhooks();
         }
-    }
-
-    /**
-     * Inject PayPal buttons using JavaScript for block themes
-     */
-    public function render_paypal_button_on_cart_block() {
-        if (! $this->is_available()) {
-            echo '<!-- PayPal Checkout: Gateway not available for block theme injection -->';
-            return;
-        }
-
-        if (! is_cart()) {
-            return;
-        }
-
-        if ( $this->is_subscription_checkout() ) {
-            return;
-        }
-
-        echo '<!-- PayPal Checkout: Injecting buttons for block theme -->';
-        ?>
-        <script type="text/javascript">
-            document.addEventListener('DOMContentLoaded', function() {
-                woo_pp_pro_inject_btn_for_cart_block();
-            });
-        </script>
-        <?php
     }
 
     /**
@@ -500,40 +467,6 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             document.addEventListener('wcpprog_paypal_sdk_ready', function () {
                 woo_pp_pro_render_ppcp_btn('#paypal-checkout-button-container');
             }, { once: true });
-        </script>
-        <?php
-    }
-
-    /**
-     * Render PayPal button on cart page
-     */
-    public function render_paypal_button_on_cart_shortcode() {
-        if (! $this->is_available()) {
-            // Debug: Add hidden comment to see if method is being called
-            echo '<!-- PayPal Checkout: Gateway not available on cart page -->';
-            return;
-        }
-
-        if (! is_cart()) {
-            return;
-        }
-
-        if ( $this->is_subscription_checkout() ) {
-            return;
-        }
-
-        echo '<!-- PayPal Checkout: Rendering button on cart page -->';
-        echo '<div class="wc-paypal-checkout-cart-button" style="border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px;">';
-        echo '<h3>' . esc_html__('Or pay with PayPal', 'woocommerce-paypal-pro-payment-gateway') . '</h3>';
-        echo '<div id="paypal-checkout-button-container" style="margin: 20px 0;"></div>';
-        echo '</div>';
-
-        echo '<!-- PayPal Checkout: Injecting buttons for block theme -->';
-        ?>
-        <script type="text/javascript">
-            document.addEventListener('DOMContentLoaded', function() {
-                woo_pp_pro_render_ppcp_btn_with_retry();
-            });
         </script>
         <?php
     }

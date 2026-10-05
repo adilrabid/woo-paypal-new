@@ -207,7 +207,7 @@ class PayPal_Utility_IPN_Related {
 
 		// Find the WooCommerce order by PayPal order ID
 		$orders = wc_get_orders(array(
-			'meta_key' => '_paypal_subscription_id',
+			'meta_key' => '_wcppprog_paypal_subscription_id',
 			'type' => 'shop_order',
 			'orderby' => 'ID',
 			'order' => 'ASC',
@@ -232,10 +232,9 @@ class PayPal_Utility_IPN_Related {
 		/* translators: %s: PayPal subscription ID. */
 		$wc_order->add_order_note(sprintf(__('PayPal subscription completed. PayPal Subscription ID: %s', 'woocommerce-paypal-pro-payment-gateway'), $paypal_subscription_id));
 
-		// Empty cart
+		$subscription = self::create_subscription_order($wc_order, $data, $txn_data, $ipn_data);
+		if ( is_wp_error( $subscription ) ) { return $subscription; }
 		WC()->cart->empty_cart();
-
-		self::create_subscription_order($wc_order, $data, $txn_data, $ipn_data);
 
 		return $wc_order;
 	}
@@ -265,11 +264,41 @@ class PayPal_Utility_IPN_Related {
 		return $copy;
 	}
 
+	/** Shared by approval and webhooks; serialize creation and repair interrupted linking. */
 	public static function create_subscription_order( $order, $data, $txn_data, $ipn_data ) {
-		$order_id = $order->get_id();
-		if ( $order->get_meta( '_wcpprog_subscription_order_id', true ) ) {
-			return;
+		$id = $order->get_meta( '_wcppprog_paypal_subscription_id', true );
+		$lock = 'wcpprog_subscription_create_' . md5( $id );
+		if ( ! $id || ! add_option( $lock, time(), '', false ) ) {
+			return new \WP_Error( 'subscription_busy', 'Subscription creation is busy. Please retry.' );
 		}
+		$locked = true;
+		register_shutdown_function( static function () use ( $lock, &$locked ) {
+			if ( $locked ) { delete_option( $lock ); }
+		} );
+		try {
+			$order = wc_get_order( $order->get_id() );
+			$existing = wc_get_orders( array(
+				'type' => \WCPPROG_Subscription_Order_Handler::ORDER_TYPE,
+				'status' => array_merge( array_keys( \WCPPROG_Subscription_Order_Handler::get_subscription_statuses() ), array( 'trash' ) ),
+				'meta_key' => '_wcppprog_paypal_subscription_id', 'meta_value' => $id, 'limit' => 1,
+			) );
+			if ( $existing ) {
+				$order->update_meta_data( '_wcpprog_subscription_order_id', $existing[0]->get_id() );
+				$order->save();
+				return $existing[0];
+			}
+			return self::build_subscription_order( $order, $data, $txn_data, $ipn_data );
+		} catch ( \Throwable $error ) {
+			PayPal_Utils::log( $error->getMessage(), false );
+			return new \WP_Error( 'subscription_creation_failed', 'Unable to create subscription order. Please retry.' );
+		} finally {
+			delete_option( $lock );
+			$locked = false;
+		}
+	}
+
+	private static function build_subscription_order( $order, $data, $txn_data, $ipn_data ) {
+		$order_id = $order->get_id();
 
 		try {
 			foreach ( $order->get_items() as $item ) {
@@ -308,26 +337,37 @@ class PayPal_Utility_IPN_Related {
 					$subscription_order->add_item( self::copy_subscription_line_item( $extra_item ) );
 				}
 
-				$interval = (int) $product->get_meta( '_subscription_recurring_billing_interval', true );
-				$period   = $product->get_meta( '_subscription_recurring_billing_interval_type', true );
+				$interval = (int) $product->get_wcppprog_sub_recurring_billing_interval();
+				$period   = $product->get_wcppprog_sub_recurring_billing_interval_type();
 				$sub_plan_id = isset($txn_data['plan_id']) ? sanitize_text_field($txn_data['plan_id']) : '';
 
 				$subscription_order->update_meta_data( '_billing_interval', $interval );
 				$subscription_order->update_meta_data( '_billing_period', $period );
 				$subscription_order->update_meta_data( '_parent_order_id', $order_id );
 				$subscription_order->update_meta_data( '_related_order_ids', array( $order_id ) );
-				$subscription_order->update_meta_data( '_paypal_subscription_id', $order->get_meta( '_paypal_subscription_id', true ) );
+				$subscription_order->update_meta_data( '_wcppprog_paypal_subscription_id', $order->get_meta( '_wcppprog_paypal_subscription_id', true ) );
 				$subscription_order->update_meta_data( '_paypal_subscription_plan_id', $sub_plan_id );
 
 				if ( $has_trial ) {
-					$trial_length = (int) $product->get_meta( '_subscription_trial_period', true );
-					$trial_period = $product->get_meta( '_subscription_trial_period_type', true );
+					$trial_length = (int) $product->get_wcppprog_sub_trial_period();
+					$trial_period = $product->get_wcppprog_sub_trial_period_type();
 					$next_payment = strtotime( "+{$trial_length} {$trial_period}" );
 				} else {
 					$next_payment = strtotime( "+{$interval} {$period}" );
 				}
 
 				$subscription_order->set_next_payment_date( $expired ? '' : gmdate( 'Y-m-d H:i:s', $next_payment ) );
+				$status_map = array( 'SUSPENDED' => 'wcpprog-on-hold', 'CANCELLED' => 'wcpprog-cancelled', 'EXPIRED' => 'wcpprog-expired' );
+				if ( isset( $status_map[ $txn_data['status'] ?? '' ] ) ) {
+					$subscription_order->set_status( $status_map[ $txn_data['status'] ] );
+				}
+				$subscription_order->update_meta_data( '_paypal_subscription_status', $txn_data['status'] ?? 'ACTIVE' );
+				if ( ! empty( $txn_data['billing_info']['next_billing_time'] ) ) {
+					$subscription_order->set_next_payment_date( gmdate( 'Y-m-d H:i:s', strtotime( $txn_data['billing_info']['next_billing_time'] ) ) );
+				}
+				if ( in_array( $txn_data['status'] ?? '', array( 'CANCELLED', 'EXPIRED' ), true ) ) {
+					$subscription_order->set_next_payment_date( '' );
+				}
 				$subscription_order->calculate_totals( false );
 				$subscription_order->save();
 
@@ -338,10 +378,12 @@ class PayPal_Utility_IPN_Related {
 				// Link back from the parent order too
 				$order->update_meta_data( '_wcpprog_subscription_order_id', $subscription_order_id );
 				$order->save();
+				return $subscription_order;
 			}
 		} catch (\Exception $e) {
 			PayPal_Utils::log( $e->getMessage(), false );
 		}
+		return new \WP_Error( 'subscription_creation_failed', 'Unable to create subscription order. Please retry.' );
 	}
 
 	public static function complete_buy_now_post_payment_processing( $data, $txn_data, $ipn_data){

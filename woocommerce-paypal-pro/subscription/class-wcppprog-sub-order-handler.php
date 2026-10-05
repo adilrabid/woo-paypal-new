@@ -139,7 +139,7 @@ class WCPPROG_Subscription_Order_Handler {
 		if ( ! $order || self::ORDER_TYPE !== $order->get_type() ) {
 			return;
 		}
-		$paypal_id = $order->get_meta( '_paypal_subscription_id', true );
+		$paypal_id = $order->get_meta( '_wcppprog_paypal_subscription_id', true );
 
 		echo $paypal_id ? esc_html( $paypal_id ) : '&mdash;';
 	}
@@ -222,7 +222,7 @@ class WCPPROG_Subscription_Order_Handler {
 		return $order instanceof WC_Order && self::ORDER_TYPE === $order->get_type()
 			&& ! $order->has_status( array( 'wcpprog-cancelled', 'cancelled', 'wcpprog-expired' ) )
 			&& ! in_array( strtoupper( $order->get_meta( '_paypal_subscription_status', true ) ), array( 'CANCELLED', 'EXPIRED' ), true )
-			&& $order->get_meta( '_paypal_subscription_id', true );
+			&& $order->get_meta( '_wcppprog_paypal_subscription_id', true );
 	}
 
 	public function remove_order_attribution_meta_box( $screen_id, $object ) {
@@ -389,7 +389,7 @@ class WCPPROG_Subscription_Order_Handler {
 		try {
 			PayPal_Utils::log( 'Subscription cancellation requested for subscription order #' . $id, true );
 			$api = new PayPal_Request_API_Injector();
-			$paypal_id = $order->get_meta( '_paypal_subscription_id', true );
+			$paypal_id = $order->get_meta( '_wcppprog_paypal_subscription_id', true );
 			$details = $api->get_paypal_subscription_details( $paypal_id );
 			$already_cancelled = $details && isset( $details->status ) && 'CANCELLED' === $details->status;
 			if ( ! $already_cancelled && ! $api->cancel_paypal_subscription( $paypal_id ) ) {

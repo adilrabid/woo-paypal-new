@@ -182,13 +182,13 @@ class PayPal_Utils{
             $args = array(
                 'currency' => get_woocommerce_currency(),
                 'sub_recur_price' => wc_format_decimal( $product->is_on_sale() ? $product->get_sale_price() : $product->get_regular_price(), 2 ),
-                'sub_recur_period' => (int) $product->get_subscription_recurring_billing_interval(),
-                'sub_recur_period_type' => $product->get_subscription_recurring_billing_interval_type(),
-                'sub_recur_count' => (int) $product->get_subscription_recurring_billing_count(),
-                'sub_recur_reattemp' => 'yes' === $product->get_subscription_reattempt_on_failure(),
-                'sub_trial_period' => (int) $product->get_subscription_trial_period(),
-                'sub_trial_period_type' => $product->get_subscription_trial_period_type(),
-                'sub_trial_price' => wc_format_decimal( $product->get_subscription_trial_price(), 2 ),
+                'sub_recur_period' => (int) $product->get_wcppprog_sub_recurring_billing_interval(),
+                'sub_recur_period_type' => $product->get_wcppprog_sub_recurring_billing_interval_type(),
+                'sub_recur_count' => (int) $product->get_wcppprog_sub_recurring_billing_count(),
+                'sub_recur_reattemp' => 'yes' === $product->get_wcppprog_sub_reattempt_on_failure(),
+                'sub_trial_period' => (int) $product->get_wcppprog_sub_trial_period(),
+                'sub_trial_period_type' => $product->get_wcppprog_sub_trial_period_type(),
+                'sub_trial_price' => wc_format_decimal( $product->get_wcppprog_sub_trial_price(), 2 ),
             );
             if ( ! $args['sub_trial_period'] ) {
                 $args['sub_trial_period_type'] = '';
@@ -201,8 +201,7 @@ class PayPal_Utils{
                 'merchant' => self::get_seller_merchant_id_by_environment_mode( $mode ),
                 'terms' => $args,
             ) ) );
-            $cache = $product->get_meta( '_subscription_ppcp_plan_cache' );
-            $cache = is_array( $cache ) ? $cache : array();
+            $cache = $product->get_wcppprog_sub_ppcp_plan_cache();
             $plan_id = $force_new ? '' : ( $cache[ $fingerprint ] ?? '' );
             if ( $plan_id ) {
                 $details = $api->get_paypal_billing_plan_details( $plan_id );
@@ -226,10 +225,10 @@ class PayPal_Utils{
             // Persist only after a usable plan is available. Legacy IDs without a
             // fingerprint are intentionally not trusted to represent today's terms.
             $cache[ $fingerprint ] = $plan_id;
-            $product->update_meta_data( '_subscription_ppcp_plan_cache', $cache );
-            $product->update_meta_data( '_subscription_ppcp_plan_id', $plan_id );
-            $product->update_meta_data( '_subscription_ppcp_plan_fingerprint', $fingerprint );
-            $product->update_meta_data( '_subscription_ppcp_plan_mode', $mode );
+            $product->set_wcppprog_sub_ppcp_plan_cache( $cache );
+            $product->update_meta_data( '_wcppprog_sub_ppcp_plan_id', $plan_id );
+            $product->update_meta_data( '_wcppprog_sub_ppcp_plan_fingerprint', $fingerprint );
+            $product->update_meta_data( '_wcppprog_sub_ppcp_plan_mode', $mode );
             $product->save_meta_data();
             return array( 'success' => true, 'plan_id' => $plan_id, 'output' => '' );
         } finally {

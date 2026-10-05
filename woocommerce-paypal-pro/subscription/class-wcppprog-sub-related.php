@@ -13,15 +13,15 @@ class WCPPROG_Subscription_Related {
     const SUBSCRIPTION_PRODUCT_TYPE = 'wcpprog_subscription';
 
     const SUBSCRIPTION_PRODUCT_FIELDS = array(
-            'subscription_recurring_price'                 => '',
-            'subscription_recurring_sale_price'            => '',
-            'subscription_recurring_billing_interval'      => 0,
-            'subscription_recurring_billing_interval_type' => '',
-            'subscription_reattempt_on_failure'            => 'no',
-            'subscription_recurring_billing_count'         => 1,
-            'subscription_trial_period'                    => 0,
-            'subscription_trial_period_type'               => '',
-            'subscription_trial_price'                     => 0,
+            'wcppprog_sub_recurring_price'                 => '',
+            'wcppprog_sub_recurring_sale_price'            => '',
+            'wcppprog_sub_recurring_billing_interval'      => 0,
+            'wcppprog_sub_recurring_billing_interval_type' => '',
+            'wcppprog_sub_reattempt_on_failure'            => 'no',
+            'wcppprog_sub_recurring_billing_count'         => 1,
+            'wcppprog_sub_trial_period'                    => 0,
+            'wcppprog_sub_trial_period_type'               => '',
+            'wcppprog_sub_trial_price'                     => 0,
     );
 
     public function __construct() {
@@ -181,7 +181,7 @@ class WCPPROG_Subscription_Related {
             foreach ( $recurring_cart->cart_contents as &$item ) {
                 $item['data'] = clone $item['data'];
                 if ( $item['data'] instanceof WCPPROG_Subscription_Product ) {
-                    $item['data']->set_subscription_trial_period( 0 );
+                    $item['data']->set_wcppprog_sub_trial_period( 0 );
                     $item['data']->set_price( $item['data']->get_due_today_amount() );
                 }
             }
@@ -209,7 +209,7 @@ class WCPPROG_Subscription_Related {
         $subscription_plan_html = '';
         if ( $product instanceof WC_Product && self::SUBSCRIPTION_PRODUCT_TYPE === $product->get_type() ) {
             $subscription_plan_html .= $product->get_price_html();
-            $billing_count = (int) $product->get_subscription_recurring_billing_count();
+            $billing_count = (int) $product->get_wcppprog_sub_recurring_billing_count();
             if ( $billing_count > 0 ) {
                 $subscription_plan_html .= '<span>' . esc_html( sprintf(
                     /* translators: %d: number of regular billing cycles, excluding any trial. */
@@ -238,14 +238,14 @@ class WCPPROG_Subscription_Related {
             return $price_html;
         }
 
-        $trial_length = (int) $product->get_meta( '_subscription_trial_period', true );
+        $trial_length = (int) $product->get_wcppprog_sub_trial_period();
         if ( $trial_length <= 0 ) {
             return $price_html;
         }
 
         $recurring_price = $product->is_on_sale() ? $product->get_sale_price() : $product->get_regular_price();
-        $interval        = (int) $product->get_meta( '_subscription_recurring_billing_interval', true );
-        $period          = $product->get_meta( '_subscription_recurring_billing_interval_type', true );
+        $interval        = (int) $product->get_wcppprog_sub_recurring_billing_interval();
+        $period          = $product->get_wcppprog_sub_recurring_billing_interval_type();
 
         $note = sprintf(
                 '<br><small class="subscription-trial-note">%s</small>',
@@ -303,7 +303,7 @@ class WCPPROG_Subscription_Related {
         echo '<div class="options_group show_if_' . esc_attr( self::SUBSCRIPTION_PRODUCT_TYPE ) . '">';
 
         woocommerce_wp_text_input( array(
-                'id'        => '_subscription_recurring_price',
+                'id'        => '_wcppprog_sub_recurring_price',
                 'label'     => __( 'Recurring Price', 'woocommerce-paypal-pro-payment-gateway' ) . ' (' . get_woocommerce_currency_symbol() . ')',
                 'description' => __( 'The regular price charged each billing period after any trial period ends.', 'woocommerce-paypal-pro-payment-gateway' ),
                 'desc_tip'  => false,
@@ -311,7 +311,7 @@ class WCPPROG_Subscription_Related {
         ) );
 
         woocommerce_wp_text_input( array(
-                'id'        => '_subscription_recurring_sale_price',
+                'id'        => '_wcppprog_sub_recurring_sale_price',
                 'label'     => __( 'Recurring Sale Price', 'woocommerce-paypal-pro-payment-gateway' ) . ' (' . get_woocommerce_currency_symbol() . ')',
                 'description' => __( 'Optional discounted price charged for each billing period after the trial period ends. Enter an amount lower than the regular recurring price; otherwise, the discount will not take effect. Leave blank to use the regular price.', 'woocommerce-paypal-pro-payment-gateway' ),
                 'desc_tip'  => false,
@@ -324,18 +324,18 @@ class WCPPROG_Subscription_Related {
                         'description' => __( 'Length of the recurring billing period', 'woocommerce-paypal-pro-payment-gateway' ),
                 ),
                 array(
-                        'id'                => '_subscription_recurring_billing_interval',
+                        'id'                => '_wcppprog_sub_recurring_billing_interval',
                         'custom_attributes' => array(
                                 'min' => 1,
                         ),
                 ),
                 array(
-                        'id' => '_subscription_recurring_billing_interval_type',
+                        'id' => '_wcppprog_sub_recurring_billing_interval_type',
                 )
         );
 
         woocommerce_wp_text_input( array(
-                'id'                => '_subscription_recurring_billing_count',
+                'id'                => '_wcppprog_sub_recurring_billing_count',
                 'label'             => __( 'Recurring Billing Count', 'woocommerce-paypal-pro-payment-gateway' ),
                 'description'       => __( 'After how many cycles should billing stop. Leave this field empty (or enter 0) if you want the payment to continue until the subscription is canceled.', 'woocommerce-paypal-pro-payment-gateway' ),
                 'type'              => 'number',
@@ -346,7 +346,7 @@ class WCPPROG_Subscription_Related {
         ) );
 
         woocommerce_wp_checkbox( array(
-                'id'          => '_subscription_reattempt_on_failure',
+                'id'          => '_wcppprog_sub_reattempt_on_failure',
                 'label'       => __( 'Reattempt on Failure', 'woocommerce-paypal-pro-payment-gateway' ),
                 'description' => __( 'When checked, the payment will be re-attempted two more times if the payment fails. After the third failure, the subscription will be canceled.', 'woocommerce-paypal-pro-payment-gateway' ),
         ) );
@@ -360,15 +360,15 @@ class WCPPROG_Subscription_Related {
                         'description' => __( 'Length of the trial period', 'woocommerce-paypal-pro-payment-gateway' ),
                 ),
                 array(
-                        'id' => '_subscription_trial_period',
+                        'id' => '_wcppprog_sub_trial_period',
                 ),
                 array(
-                        'id' => '_subscription_trial_period_type',
+                        'id' => '_wcppprog_sub_trial_period_type',
                 )
         );
 
         woocommerce_wp_text_input( array(
-                'id'          => '_subscription_trial_price',
+                'id'          => '_wcppprog_sub_trial_price',
                 'label'       => __( 'Trial Price', 'woocommerce-paypal-pro-payment-gateway' ) . ' (' . get_woocommerce_currency_symbol() . ')',
                 'data_type'   => 'price',
                 'description' => __( 'Amount to be charged for the trial period. Leave empty or enter 0 if you want to offer a free trial period', 'woocommerce-paypal-pro-payment-gateway' ),
@@ -391,8 +391,8 @@ class WCPPROG_Subscription_Related {
         }
 
         // WooCommerce uses these standard fields for purchasability and cart pricing.
-        $product->set_regular_price( $product->get_subscription_recurring_price( 'edit' ) );
-        $product->set_sale_price( $product->get_subscription_recurring_sale_price( 'edit' ) );
+        $product->set_regular_price( $product->get_wcppprog_sub_recurring_price( 'edit' ) );
+        $product->set_sale_price( $product->get_wcppprog_sub_recurring_sale_price( 'edit' ) );
         $product->set_price(
                 $product->is_on_sale( 'edit' )
                         ? $product->get_sale_price( 'edit' )

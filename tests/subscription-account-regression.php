@@ -55,7 +55,7 @@ namespace {
         public function get_customer_id() { return $this->owner; }
         public function has_status($status) { return in_array($this->status, (array) $status, true); }
         public function get_status() { return $this->status; }
-        public function get_meta($key, $single) { return $key === '_paypal_subscription_id' ? 'I-123<script>' : ''; }
+        public function get_meta($key, $single) { return $key === '_wcppprog_paypal_subscription_id' ? 'I-123<script>' : ''; }
         public function get_paypal_subscription_id() { return 'I-123<script>'; }
         public function get_date_created() { return null; }
         public function get_order_number() { return '7'; }

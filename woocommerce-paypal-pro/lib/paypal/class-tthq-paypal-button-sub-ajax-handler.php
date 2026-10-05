@@ -190,7 +190,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 		//PayPal_Utils::log_array( $sub_item_data, true );		
 
 	    // Store PayPal order ID in WC order meta
-	    $wc_order->update_meta_data('_paypal_subscription_id', $paypal_sub_id);
+	    $wc_order->update_meta_data('_wcppprog_paypal_subscription_id', $paypal_sub_id);
 		$wc_order->update_meta_data( '_wcpprog_paypal_plan_id', $plan_id );
 		$wc_order->update_meta_data( '_wcpprog_has_trial', $sub_product->is_trial_enabled() ? 'yes' : 'no' );
 		WC()->session->set( 'wcpprog_subscription_approval_order', $wc_order->get_id() );
@@ -613,7 +613,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 	 */
 	public function validate_subscription_checkout_txn_data( $data, &$txn_data ) {
 		$subscription_id = isset( $data['subscriptionID'] ) ? sanitize_text_field( $data['subscriptionID'] ) : '';
-		$orders = $subscription_id ? wc_get_orders( array( 'type' => 'shop_order', 'meta_key' => '_paypal_subscription_id', 'meta_value' => $subscription_id, 'orderby' => 'ID', 'order' => 'ASC', 'limit' => 1 ) ) : array();
+		$orders = $subscription_id ? wc_get_orders( array( 'type' => 'shop_order', 'meta_key' => '_wcppprog_paypal_subscription_id', 'meta_value' => $subscription_id, 'orderby' => 'ID', 'order' => 'ASC', 'limit' => 1 ) ) : array();
 		$order = $orders ? $orders[0] : false;
 		$session_orders = array_map( 'absint', array( WC()->session->get( 'wcpprog_subscription_approval_order' ), WC()->session->get( 'wcpprog_subscription_checkout_order' ), WC()->session->get( 'order_awaiting_payment' ) ) );
 		if ( ! $order || (int) $order->get_customer_id() !== get_current_user_id()

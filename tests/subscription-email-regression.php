@@ -52,7 +52,7 @@ namespace {
         public $email = 'buyer@example.com';
         public $status = 'wcpprog-active';
         public $notes = array();
-        public $meta = array('_paypal_subscription_id' => 'I-123<script>', '_billing_interval' => 2, '_billing_period' => 'month', '_next_payment_date' => '2026-10-27 08:00:00');
+        public $meta = array('_wcppprog_paypal_subscription_id' => 'I-123<script>', '_billing_interval' => 2, '_billing_period' => 'month', '_next_payment_date' => '2026-10-27 08:00:00');
         public function get_id() { return 42; }
         public function get_payment_method_title() { return ''; }
         public function get_payment_method() { return ''; }
@@ -85,7 +85,7 @@ namespace {
     }
     class WC_Product {
         public static $billing_count = 6;
-        public function get_subscription_recurring_billing_count() { return self::$billing_count; }
+        public function get_wcppprog_sub_recurring_billing_count() { return self::$billing_count; }
         public function get_type() { return WCPPROG_Subscription_Related::SUBSCRIPTION_PRODUCT_TYPE; }
         public function get_price_html() { return '$25.00 / month'; }
     }

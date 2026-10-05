@@ -35,7 +35,7 @@ class PayPal_Checkout_Attempt {
 
 	/** Return the existing approval ID only after checking its server-side status. */
 	public static function get_approval_id( $order, $type ) {
-		$id = $order->get_meta( 'subscription' === $type ? '_paypal_subscription_id' : '_paypal_order_id', true );
+		$id = $order->get_meta( 'subscription' === $type ? '_wcppprog_paypal_subscription_id' : '_paypal_order_id', true );
 		if ( ! $id ) {
 			return '';
 		}
@@ -70,7 +70,7 @@ class PayPal_Checkout_Attempt {
 	/** Let WooCommerce rebuild only our own matching, as-yet-unlinked order. */
 	public static function create_order( $data, $type, $fingerprint ) {
 		$order = self::get_order( $type, $fingerprint );
-		$unlinked = $order && ! $order->get_meta( '_paypal_order_id', true ) && ! $order->get_meta( '_paypal_subscription_id', true );
+		$unlinked = $order && ! $order->get_meta( '_paypal_order_id', true ) && ! $order->get_meta( '_wcppprog_paypal_subscription_id', true );
 		$previous = WC()->session->get( 'order_awaiting_payment' );
 		WC()->session->set( 'order_awaiting_payment', $unlinked ? $order->get_id() : 0 );
 		try {
