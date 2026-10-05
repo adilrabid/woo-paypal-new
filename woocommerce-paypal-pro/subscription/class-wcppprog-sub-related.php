@@ -11,6 +11,7 @@ class WCPPROG_Subscription_Related {
     use WCPPROG_Subscription_Related_Trait;
 
     const SUBSCRIPTION_PRODUCT_TYPE = 'wcpprog_subscription';
+    const PAYMENT_REQUIREMENT = 'wcppprog_subscription_checkout';
 
     const SUBSCRIPTION_PRODUCT_FIELDS = array(
             'wcppprog_sub_recurring_price'                 => '',
@@ -153,7 +154,24 @@ class WCPPROG_Subscription_Related {
         }
     }
 
+    /** Blocks applies payment requirements to regular and express payment methods. */
+    public function get_subscription_payment_requirements() {
+        if ( ! WC()->cart ) {
+            return array();
+        }
+        foreach ( WC()->cart->get_cart() as $item ) {
+            $product = $item['data'] ?? null;
+            if ( $product instanceof WC_Product && self::SUBSCRIPTION_PRODUCT_TYPE === $product->get_type() ) {
+                return array( self::PAYMENT_REQUIREMENT );
+            }
+        }
+        return array();
+    }
+
     public function register_subscription_plan_data() {
+        woocommerce_store_api_register_payment_requirements( array(
+            'data_callback' => array( $this, 'get_subscription_payment_requirements' ),
+        ) );
         woocommerce_store_api_register_endpoint_data( array(
             'endpoint' => \Automattic\WooCommerce\StoreApi\Schemas\V1\CartItemSchema::IDENTIFIER,
             'namespace' => 'wcpprog',

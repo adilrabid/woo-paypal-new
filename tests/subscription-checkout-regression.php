@@ -35,7 +35,14 @@ namespace {
     function delete_option($key) { unset($GLOBALS['locks'][$key]); }
     class WP_Error { public function __construct(public $code, public $message) {} public function get_error_message() { return $this->message; } }
     function is_wp_error($value) { return $value instanceof WP_Error; }
-    class WCPPROG_Subscription_Order_Handler { const ORDER_TYPE = 'wcpprog_sub_order'; public static function get_subscription_statuses() { return array('wc-wcpprog-active' => 'Active'); } }
+    class WCPPROG_Subscription_Order_Handler {
+        const STATUS_TRIAL = 'wcpprog-trial';
+        const STATUS_ACTIVE = 'wcpprog-active';
+        const STATUS_ON_HOLD = 'wcpprog-on-hold';
+        const STATUS_PENDING_CANCEL = 'wcpprog-pending-cancel';
+        const STATUS_CANCELLED = 'wcpprog-cancelled';
+        const STATUS_EXPIRED = 'wcpprog-expired';
+        const ORDER_TYPE = 'wcpprog_sub_order'; public static function get_subscription_statuses() { return array('wc-wcpprog-active' => 'Active'); } }
     function wp_json_encode($value) { return json_encode($value); }
     class WC_Payment_Gateway {}
     class WCPPROG_Subscription_Related { const SUBSCRIPTION_PRODUCT_TYPE = 'subscription'; }
@@ -55,6 +62,7 @@ namespace {
         public $props = array('id' => 99, 'order_id' => 10, 'total' => 8, 'taxes' => array('total' => array(1 => 0.8)));
         public $meta = array();
         public function get_data() { return $this->props; }
+        public function get_changes() { return array(); }
         public function set_props($data) { $this->props = $data; }
         public function get_meta_data() { return array((object) array('key' => 'label', 'value' => 'Delivery'), (object) array('key' => '_reduced_stock', 'value' => 1)); }
         public function add_meta_data($key, $value) { $this->meta[$key] = $value; }
@@ -64,6 +72,11 @@ namespace {
     class TestFeeItem extends TestItem {}
     class TestTaxItem extends TestItem {}
     class TestCouponItem extends TestItem {}
+    class WC_Order_Item_Product extends TestItem {}
+    class WC_Order_Item_Shipping extends TestShippingItem {}
+    class WC_Order_Item_Fee extends TestFeeItem {}
+    class WC_Order_Item_Tax extends TestTaxItem {}
+    class WC_Order_Item_Coupon extends TestCouponItem {}
     class WCPPROG_WC_Subscription_Order {
         public static $last;
         public $values = array();
@@ -71,11 +84,13 @@ namespace {
         public $calculated = null;
         public function __construct() { self::$last = $this; }
         public function __call($name, $args) { $this->values[$name] = $args[0]; }
+        public function set_props($props) { foreach ($props as $key => $value) { $this->values['set_' . $key] = $value; } }
         public function add_item($item) { $this->items[] = $item; }
         public function calculate_totals($taxes) { $this->calculated = $taxes; }
         public function get_id() { return 123; }
         public function save() {}
     }
+    require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-checkout-guard.php';
     require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-utils-ipn-related.php';
     require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-button-sub-ajax-handler.php';
     require WC_PP_PRO_ADDON_PATH . '/woo-paypal-pro-gateway-paypal-checkout.php';
@@ -90,7 +105,12 @@ namespace {
     }
     $parent = new class {
         public function get_id() { return 10; }
-        public function get_meta($key, $single) { return array('_wcppprog_paypal_subscription_id' => 'I-TEST', '_wcpprog_paypal_plan_id' => 'P-TEST', '_wcpprog_has_trial' => 'no')[$key] ?? ''; }
+        public function get_meta($key, $single) {
+            if ($key === '_wcppprog_recurring_breakdown') {
+                return array('props' => array('currency' => 'EUR', 'total' => 28, 'cart_tax' => '2.00', 'shipping_tax' => '1.00'),
+                    'items' => array_map(static function ($type) { return array('type' => $type, 'data' => array('total' => 20), 'meta' => array(array('key' => 'label', 'value' => 'Recurring'))); }, array('line_item', 'shipping', 'fee', 'tax', 'coupon')));
+            }
+ return array('_wcppprog_paypal_subscription_id' => 'I-TEST', '_wcpprog_paypal_plan_id' => 'P-TEST', '_wcpprog_has_trial' => 'no')[$key] ?? ''; }
         public function get_customer_id() { return 1; }
         public function get_payment_method() { return 'paypal_checkout'; }
         public function get_payment_method_title() { return 'My Custom Gateway'; }
@@ -113,8 +133,10 @@ namespace {
     check($subscription->values['set_currency'] === 'EUR', 'Preserve order currency');
     check($subscription->values['set_payment_method'] === 'paypal_checkout' && $subscription->values['set_payment_method_title'] === 'My Custom Gateway', 'Preserve configured payment method on subscription');
     check($subscription->values['set_prices_include_tax'] === true, 'Preserve inclusive tax display');
-    check($subscription->values['set_cart_tax'] === '9.50' && $subscription->values['set_shipping_tax'] === '0.80', 'Preserve tax totals used by WooCommerce total calculation');
-    check($subscription->calculated === false, 'Recalculate totals without changing historical tax rates');
+    check($subscription->values['set_cart_tax'] === '2.00' && $subscription->values['set_shipping_tax'] === '1.00', 'Use recurring taxes instead of initial taxes');
+    check($subscription->values['set_total'] === 28 && $subscription->items[0]->props['total'] === 20, 'Use recurring total and product price from checkout snapshot');
+    check($subscription->items[0]->meta['label'] === 'Recurring', 'Preserve recurring item metadata');
+    check($subscription->calculated === null, 'Preserve calculated recurring totals without repricing');
     $cart = new class {
         public $items;
         public $stock_error = false;
