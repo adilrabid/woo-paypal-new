@@ -198,7 +198,8 @@ class Woo_PP_Pro_PPCP_Buy_Now_Btn extends Woo_PP_Pro_PPCP_Btn {
 
     createOrder = async () => {
         try {
-            const data = await this.ppcpAjax(wc_paypal_checkout_params.create_order_ajax_action);
+            const customer = this.readCheckoutCustomer();
+            const data = await this.ppcpAjax(wc_paypal_checkout_params.create_order_ajax_action, customer ? { checkout_customer: JSON.stringify({ billing: customer.billing, shipping: customer.shipping }) } : {});
             return data.order_id;
         } catch (error) {
             console.error(error);

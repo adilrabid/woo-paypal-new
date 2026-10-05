@@ -172,9 +172,10 @@ class WCPPROG_Subscription_Related {
     }
 
     /** Calculate billing totals from an already calculated checkout cart. */
-    public static function get_subscription_checkout_totals( $cart, $product ) {
+    public static function get_subscription_checkout_totals( $cart, $product, $include_breakdown = false ) {
         $initial_total = $cart->get_total( 'edit' );
         $recurring_total = $initial_total;
+        $breakdown = null;
 
         if ( $product->is_trial_enabled() ) {
             $recurring_cart = clone $cart;
@@ -193,6 +194,9 @@ class WCPPROG_Subscription_Related {
                 $recurring_cart->fees_api()->remove_all_fees();
                 new WC_Cart_Totals( $recurring_cart );
                 $recurring_total = $recurring_cart->get_total( 'edit' );
+                if ( $include_breakdown ) {
+                    $breakdown = self::get_recurring_order_breakdown();
+                }
             } finally {
                 WC()->cart = $cart;
                 // Restore shipping/session caches for the initial checkout.
@@ -200,7 +204,34 @@ class WCPPROG_Subscription_Related {
             }
         }
 
-        return array( 'initial' => $initial_total, 'recurring' => $recurring_total );
+        if ( $include_breakdown && null === $breakdown ) {
+            $breakdown = self::get_recurring_order_breakdown();
+        }
+        return array( 'initial' => $initial_total, 'recurring' => $recurring_total, 'breakdown' => $breakdown );
+    }
+
+    /** Capture the calculated cart without saving a temporary order or reducing stock. */
+    private static function get_recurring_order_breakdown() {
+        $order = new WC_Order();
+        $order->set_currency( get_woocommerce_currency() );
+        $order->set_prices_include_tax( wc_prices_include_tax() );
+        WC()->checkout()->set_data_from_cart( $order );
+        $props = array();
+        foreach ( array( 'currency', 'prices_include_tax', 'shipping_total', 'discount_total', 'discount_tax', 'cart_tax', 'shipping_tax', 'total' ) as $key ) {
+            $props[ $key ] = $order->{ 'get_' . $key }( 'edit' );
+        }
+        $items = array();
+        foreach ( $order->get_items( array( 'line_item', 'shipping', 'fee', 'tax', 'coupon' ) ) as $item ) {
+            // Checkout items are unsaved; get_data() excludes their pending values.
+            $data = array_merge( $item->get_data(), $item->get_changes() );
+            unset( $data['id'], $data['order_id'], $data['meta_data'] );
+            $meta = array();
+            foreach ( $item->get_meta_data() as $entry ) {
+                $meta[] = array( 'key' => $entry->key, 'value' => $entry->value );
+            }
+            $items[] = array( 'type' => $item->get_type(), 'data' => $data, 'meta' => $meta );
+        }
+        return array( 'props' => $props, 'items' => $items );
     }
 
     public static function get_subscription_plan_data( $cart_item ) {
@@ -268,7 +299,16 @@ class WCPPROG_Subscription_Related {
             jQuery(function ($) {
                 $('#inventory_product_data .show_if_simple.show_if_variable').addClass('show_if_<?php echo esc_js( self::SUBSCRIPTION_PRODUCT_TYPE ); ?>');
 
-                $('#product-type').trigger('change');
+                const $type = $('#product-type');
+                const subscriptionType = '<?php echo esc_js( self::SUBSCRIPTION_PRODUCT_TYPE ); ?>';
+                $type.on('change', function () {
+                    if ($type.val() === subscriptionType) {
+                        $type.find('option').each(function () {
+                            $(this).prop('disabled', this.value !== subscriptionType);
+                        });
+                    }
+                });
+                $type.trigger('change');
             });
         </script>
         <?php

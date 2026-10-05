@@ -164,44 +164,47 @@ class PayPal_Webhook_Event_Handler {
 	 * Handle subscription status update.
 	 */
 	private function handle_subscription_status_update( $status, $event, $mode ) {
+		$id = $event['resource']['id'] ?? '';
+		if ( ! $id || ( ! $this->get_subscription_order_by_paypal_sub_id( $id ) && ! $this->get_subscription_checkout_order( $id ) ) ) {
+			return;
+		}
+		$this->with_subscription_webhook_lock( $id, $mode, function () use ( $status, $event, $mode ) {
+			$this->process_subscription_status_update( $status, $event, $mode );
+		} );
+	}
+
+	private function process_subscription_status_update( $status, $event, $mode ) {
 		PayPal_Utils::log( 'Webhook: processing subscription status ' . $status, true );
 		$resource = isset( $event['resource'] ) ? $event['resource'] : array();
 		$id       = isset( $resource['id'] ) ? $resource['id'] : '';
 		$sub_order      = $id ? $this->get_subscription_order_by_paypal_sub_id( $id ) : null;
 
-		if ( ! $sub_order && 'activated' === $status ) {
-			// Recovery uses current PayPal state, not a potentially delayed activation event.
-			$this->recover_subscription_order( $id );
-			return;
-		}
 		if ( ! $sub_order ) {
-			PayPal_Utils::log( 'Webhook: status event ignored because subscription was not found.', true );
-
+			// Recovery verifies an owned checkout and uses current PayPal state.
+			// This also handles a terminal event arriving before browser approval.
+			if ( ! $this->recover_subscription_order( $id ) ) {
+				PayPal_Utils::log( 'Webhook: unrelated subscription status ignored.', true );
+			}
 			return;
 		}
 
-		$map = array(
-			'activated' => 'wcpprog-active',
-			'suspended' => 'wcpprog-on-hold',
-			'cancelled' => 'wcpprog-cancelled',
-			'expired'   => 'wcpprog-expired'
-		);
+		$details = $this->get_current_subscription_details( $id );
+		$this->update_subscription_billing_schedule( $sub_order, $details );
+		/* translators: %s: current PayPal subscription status. */
+		$sub_order->add_order_note( sprintf( __( 'PayPal subscription status: %s.', 'woocommerce-paypal-pro-payment-gateway' ), $details->status ) );
+		$sub_order->save();
+		PayPal_Utils::log( 'Webhook: subscription order #' . $sub_order->get_id() . ' synchronized to ' . $details->status, true );
+	}
 
-		if ( isset( $map[ $status ] ) ) {
-			// PayPal activation approves the agreement, including its trial period.
-			if ( 'activated' === $status && 'yes' === $sub_order->get_meta( '_wcpprog_has_trial', true ) && 'yes' !== $sub_order->get_meta( '_wcpprog_regular_payment_received', true ) ) {
-				$map[ $status ] = 'wcpprog-trial';
-			}
-			$sub_order->set_status( $map[ $status ] );
-			$sub_order->update_meta_data( '_paypal_subscription_status', strtoupper( $status ) );
-			if ( ! empty( $resource['billing_info']['next_billing_time'] ) ) {
-				$sub_order->set_next_payment_date( gmdate( 'Y-m-d H:i:s', strtotime( $resource['billing_info']['next_billing_time'] ) ) );
-			}
-			/* translators: %s: PayPal subscription status. */
-			$sub_order->add_order_note( sprintf( __( 'PayPal subscription %s.', 'woocommerce-paypal-pro-payment-gateway' ), $status ) );
-			$sub_order->save();
-			PayPal_Utils::log( 'Webhook: subscription order #' . $sub_order->get_id() . ' updated to ' . $map[ $status ], true );
+	/** Query current state so delayed webhooks cannot undo a newer transition. */
+	private function get_current_subscription_details( $id ) {
+		$api = new PayPal_Request_API_Injector();
+		$details = $api->get_paypal_subscription_details( $id );
+		if ( ! $details || ( $details->id ?? '' ) !== $id
+			|| ! in_array( $details->status ?? '', array( 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'EXPIRED' ), true ) ) {
+			wp_die( 'Subscription status could not be verified. Retry later.', '', array( 'response' => 503 ) );
 		}
+		return $details;
 	}
 
 	/**
@@ -218,6 +221,13 @@ class PayPal_Webhook_Event_Handler {
 			PayPal_Utils::log( 'Webhook: unrelated subscription payment ignored.', true );
 			return;
 		}
+		$this->with_subscription_webhook_lock( $paypal_sub_id, $mode, function () use ( $payment_status, $event, $mode ) {
+			$this->process_subscription_sale( $payment_status, $event, $mode );
+		} );
+	}
+
+	/** Serialize all webhook reads and writes for the same subscription. */
+	private function with_subscription_webhook_lock( $paypal_sub_id, $mode, $callback ) {
 		$lock = 'wcpprog_payment_lock_' . md5( $mode . $paypal_sub_id );
 		if ( ! add_option( $lock, time(), '', false ) ) {
 			wp_die( 'Subscription payment is being processed. Retry later.', '', array( 'response' => 503 ) );
@@ -229,7 +239,7 @@ class PayPal_Webhook_Event_Handler {
 			}
 		} );
 		try {
-			$this->process_subscription_sale( $payment_status, $event, $mode );
+			$callback();
 		} finally {
 			delete_option( $lock );
 			$locked = false;
@@ -256,6 +266,9 @@ class PayPal_Webhook_Event_Handler {
 
 			return;
 		}
+		// The sale resource has no reliable next billing time. Read the current
+		// subscription before recording the sale so a retry can finish both tasks.
+		$details = $this->get_current_subscription_details( $paypal_sub_id );
 
 		$existing = wc_get_orders( array(
 			'type' => 'shop_order',
@@ -283,19 +296,24 @@ class PayPal_Webhook_Event_Handler {
 			PayPal_Utils::log( 'Webhook: initial payment linked to checkout order #' . $parent->get_id(), true );
 		}
 		if ( empty( $existing ) ) {
+			$amount = $r['amount']['total'] ?? ( $r['amount']['value'] ?? '' );
+			$currency = $r['amount']['currency'] ?? ( $r['amount']['currency_code'] ?? '' );
+			if ( ! is_numeric( $amount ) || $currency !== $sub_order->get_currency()
+				|| wc_format_decimal( $amount, wc_get_price_decimals() ) !== wc_format_decimal( $sub_order->get_total(), wc_get_price_decimals() ) ) {
+				PayPal_Utils::log( 'Webhook: payment ' . $transaction_id . ' amount/currency differs from subscription #' . $sub_order->get_id() . '. Review the PayPal payment and recurring breakdown before retrying.', false );
+				wp_die( 'Payment does not match subscription totals. Review required.', '', array( 'response' => 503 ) );
+			}
 			PayPal_Utils::log( 'Webhook: creating renewal order for subscription order #' . $sub_order->get_id(), true );
 			$order = wc_create_order( array( 'customer_id' => $sub_order->get_customer_id() ) );
 			$order->set_payment_method( 'paypal_checkout' );
 			$order->set_payment_method_title( __( 'PayPal Checkout', 'woocommerce-paypal-pro-payment-gateway' ) );
 			$order->set_billing_address( $sub_order->get_address( 'billing' ) );
 			$order->set_shipping_address( $sub_order->get_address( 'shipping' ) );
-			foreach ( $sub_order->get_items() as $item ) {
+			foreach ( $sub_order->get_items( array( 'line_item', 'shipping', 'fee', 'tax', 'coupon' ) ) as $item ) {
 				$order->add_item( PayPal_Utility_IPN_Related::copy_subscription_line_item( $item ) );
 			}
-			$order->calculate_totals( false );
-			$amount = isset( $r['amount']['total'] ) ? $r['amount']['total'] : ( isset( $r['amount']['value'] ) ? $r['amount']['value'] : '' );
-			if ( '' !== $amount ) {
-				$order->set_total( (float) $amount );
+			foreach ( array( 'currency', 'prices_include_tax', 'shipping_total', 'discount_total', 'discount_tax', 'cart_tax', 'shipping_tax', 'total' ) as $prop ) {
+				$order->{ 'set_' . $prop }( $sub_order->{ 'get_' . $prop }( 'edit' ) );
 			}
 			$order->update_meta_data( '_wcppprog_paypal_subscription_id', $paypal_sub_id );
 			$order->update_meta_data( '_paypal_transaction_id', $transaction_id );
@@ -308,15 +326,39 @@ class PayPal_Webhook_Event_Handler {
 			PayPal_Utils::log( 'Webhook: renewal order #' . $order->get_id() . ' created for transaction ' . $transaction_id, true );
 		} else {
 			PayPal_Utils::log( 'Webhook: transaction ' . $transaction_id . ' already belongs to order #' . $existing[0]->get_id(), true );
-			return;
 		}
 		// The initial charge (including a paid trial) is linked to the parent
 		// above. A new renewal order marks the start of regular billing.
-		$sub_order->update_meta_data( '_wcpprog_regular_payment_received', 'yes' );
-		$sub_order->set_status( 'wcpprog-active' );
-		PayPal_Utils::log( 'Webhook: regular payment received; subscription order #' . $sub_order->get_id() . ' is active.', true );
+		if ( empty( $existing ) || (int) $existing[0]->get_id() !== (int) $sub_order->get_parent_order_id_ref() ) {
+			$sub_order->update_meta_data( '_wcpprog_regular_payment_received', 'yes' );
+		}
+		$this->update_subscription_billing_schedule( $sub_order, $details );
+		PayPal_Utils::log( 'Webhook: payment received; subscription order #' . $sub_order->get_id() . ' synchronized with PayPal status ' . $details->status . '.', true );
 		$sub_order->update_meta_data( '_paypal_last_transaction_id', $transaction_id );
 		$sub_order->save();
+	}
+
+	/** Use PayPal's current schedule, never an interval inferred from a sale date. */
+	private function update_subscription_billing_schedule( $sub_order, $details ) {
+		$status_map = array(
+			'ACTIVE' => \WCPPROG_Subscription_Order_Handler::STATUS_ACTIVE,
+			'SUSPENDED' => \WCPPROG_Subscription_Order_Handler::STATUS_ON_HOLD,
+			'CANCELLED' => \WCPPROG_Subscription_Order_Handler::STATUS_CANCELLED,
+			'EXPIRED' => \WCPPROG_Subscription_Order_Handler::STATUS_EXPIRED,
+		);
+		$local_status = $status_map[ $details->status ];
+		if ( 'ACTIVE' === $details->status
+			&& 'yes' === $sub_order->get_meta( '_wcpprog_has_trial', true )
+			&& 'yes' !== $sub_order->get_meta( '_wcpprog_regular_payment_received', true ) ) {
+			$local_status = \WCPPROG_Subscription_Order_Handler::STATUS_TRIAL;
+		}
+		$sub_order->set_status( $local_status );
+		$sub_order->update_meta_data( '_paypal_subscription_status', $details->status );
+		$next_billing_time = $details->billing_info->next_billing_time ?? '';
+		$next_payment = $next_billing_time ? strtotime( $next_billing_time ) : false;
+		$sub_order->set_next_payment_date(
+			'ACTIVE' === $details->status && false !== $next_payment ? gmdate( 'Y-m-d H:i:s', $next_payment ) : ''
+		);
 	}
 
 	/**

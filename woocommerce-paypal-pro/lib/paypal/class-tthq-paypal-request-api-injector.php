@@ -411,6 +411,10 @@ class PayPal_Request_API_Injector {
                 ];
             }
 
+            if ( ! empty( $data['shipping'] ) ) {
+                $order_data['purchase_units'][0]['shipping'] = $data['shipping'];
+            }
+
             if (!empty($application_context)) {
                 $order_data['application_context'] = $application_context;
             }

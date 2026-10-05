@@ -376,6 +376,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
      * Check if this gateway is enabled and available
      */
     public function is_available() {
+        if ( \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Checkout_Guard::unsupported_subscription() ) { return false; }
         if ('yes' === $this->enabled) {
             if (! empty($this->client_id) && ! empty($this->client_secret)) {
                 return true;

@@ -137,7 +137,8 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
             buttonConfig.createOrder = async () => {
                 setBusy(true);
                 try {
-                    const result = await ajaxPost({action: config.createOrderAction, nonce: config.nonce});
+                    const customer = select('wc/store/cart')?.getCustomerData();
+                    const result = await ajaxPost({action: config.createOrderAction, nonce: config.nonce, checkout_customer: JSON.stringify({ billing: customer?.billingAddress, shipping: customer?.shippingAddress })});
                     return result.order_id;
                 } catch (error) {
                     showError(error);

@@ -252,7 +252,7 @@ class PayPal_Utility_IPN_Related {
 		// Persisted clones retain their ID and would move the original item.
 		$class = get_class( $item );
 		$copy = new $class();
-		$data = $item->get_data();
+		$data = array_merge( $item->get_data(), $item->get_changes() );
 		unset( $data['id'], $data['order_id'], $data['meta_data'] );
 		$copy->set_props( $data );
 		foreach ( $item->get_meta_data() as $meta ) {
@@ -323,18 +323,30 @@ class PayPal_Utility_IPN_Related {
 				// The PayPal subscription has been approved before this order is created.
 				$has_trial = 'yes' === $order->get_meta( '_wcpprog_has_trial', true );
 				$subscription_order->update_meta_data( '_wcpprog_has_trial', $has_trial ? 'yes' : 'no' );
-				$subscription_order->set_status( $has_trial ? 'wcpprog-trial' : 'wcpprog-active' );
+				$subscription_order->set_status( $has_trial ? \WCPPROG_Subscription_Order_Handler::STATUS_TRIAL : \WCPPROG_Subscription_Order_Handler::STATUS_ACTIVE );
 				$expired = 'EXPIRED' === ( $txn_data['status'] ?? '' );
 				if ( $expired ) {
-					$subscription_order->set_status( 'wcpprog-expired' );
+					$subscription_order->set_status( \WCPPROG_Subscription_Order_Handler::STATUS_EXPIRED );
 					$subscription_order->update_meta_data( '_paypal_subscription_status', 'EXPIRED' );
 				}
 
-				// Copy the line item onto the subscription for reference
-				$subscription_order->add_item( self::copy_subscription_line_item( $item ) );
-				// Preserve the initial checkout breakdown, including tax rates and coupons.
-				foreach ( $order->get_items( array( 'shipping', 'fee', 'tax', 'coupon' ) ) as $extra_item ) {
-					$subscription_order->add_item( self::copy_subscription_line_item( $extra_item ) );
+				// Saved at checkout using the same recurring calculation sent to PayPal.
+				$breakdown = $order->get_meta( '_wcppprog_recurring_breakdown', true );
+				if ( empty( $breakdown['props'] ) || empty( $breakdown['items'] ) ) {
+					throw new \RuntimeException( 'Missing recurring checkout breakdown.' );
+				}
+				$subscription_order->set_props( $breakdown['props'] );
+				$classes = array( 'line_item' => '\WC_Order_Item_Product', 'shipping' => '\WC_Order_Item_Shipping', 'fee' => '\WC_Order_Item_Fee', 'tax' => '\WC_Order_Item_Tax', 'coupon' => '\WC_Order_Item_Coupon' );
+				foreach ( $breakdown['items'] as $entry ) {
+					if ( ! isset( $classes[ $entry['type'] ] ) ) {
+						throw new \RuntimeException( 'Invalid recurring order item type.' );
+					}
+					$recurring_item = new $classes[ $entry['type'] ]();
+					$recurring_item->set_props( $entry['data'] );
+					foreach ( $entry['meta'] as $meta ) {
+						$recurring_item->add_meta_data( $meta['key'], $meta['value'] );
+					}
+					$subscription_order->add_item( $recurring_item );
 				}
 
 				$interval = (int) $product->get_wcppprog_sub_recurring_billing_interval();
@@ -357,7 +369,7 @@ class PayPal_Utility_IPN_Related {
 				}
 
 				$subscription_order->set_next_payment_date( $expired ? '' : gmdate( 'Y-m-d H:i:s', $next_payment ) );
-				$status_map = array( 'SUSPENDED' => 'wcpprog-on-hold', 'CANCELLED' => 'wcpprog-cancelled', 'EXPIRED' => 'wcpprog-expired' );
+				$status_map = array( 'SUSPENDED' => \WCPPROG_Subscription_Order_Handler::STATUS_ON_HOLD, 'CANCELLED' => \WCPPROG_Subscription_Order_Handler::STATUS_CANCELLED, 'EXPIRED' => \WCPPROG_Subscription_Order_Handler::STATUS_EXPIRED );
 				if ( isset( $status_map[ $txn_data['status'] ?? '' ] ) ) {
 					$subscription_order->set_status( $status_map[ $txn_data['status'] ] );
 				}
@@ -368,7 +380,7 @@ class PayPal_Utility_IPN_Related {
 				if ( in_array( $txn_data['status'] ?? '', array( 'CANCELLED', 'EXPIRED' ), true ) ) {
 					$subscription_order->set_next_payment_date( '' );
 				}
-				$subscription_order->calculate_totals( false );
+				// Preserve checkout rounding and totals exactly as agreed with PayPal.
 				$subscription_order->save();
 
 				$subscription_order_id = $subscription_order->get_id();

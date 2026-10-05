@@ -12,6 +12,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 
 	public $wc_paypal_ppcp;
 	private $checkout_customer_data = array();
+	private $recurring_breakdown = array();
 
 	public function __construct() {
 		//Handle it at 'wp_loaded' since custom post types will also be available at that point.
@@ -108,7 +109,7 @@ class PayPal_Button_Sub_Ajax_Handler {
         }
 
         $plan_id = isset($plan['plan_id']) ? sanitize_text_field($plan['plan_id']) : '';
-		$fingerprint = PayPal_Checkout_Attempt::fingerprint( $wc_paypal_ppcp, array( $plan_id, $subscription_data, $this->checkout_customer_data ) );
+		$fingerprint = PayPal_Checkout_Attempt::fingerprint( $wc_paypal_ppcp, array( $plan_id, $subscription_data, $this->checkout_customer_data, $this->recurring_breakdown ) );
 		$previous_order = PayPal_Checkout_Attempt::get_order( 'subscription', $fingerprint );
 		if ( $previous_order ) {
 			$approval_id = PayPal_Checkout_Attempt::get_approval_id( $previous_order, 'subscription' );
@@ -192,6 +193,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 	    // Store PayPal order ID in WC order meta
 	    $wc_order->update_meta_data('_wcppprog_paypal_subscription_id', $paypal_sub_id);
 		$wc_order->update_meta_data( '_wcpprog_paypal_plan_id', $plan_id );
+		$wc_order->update_meta_data( '_wcppprog_recurring_breakdown', $this->recurring_breakdown );
 		$wc_order->update_meta_data( '_wcpprog_has_trial', $sub_product->is_trial_enabled() ? 'yes' : 'no' );
 		WC()->session->set( 'wcpprog_subscription_approval_order', $wc_order->get_id() );
 		$wc_order->update_meta_data( '_wcpprog_initial_payment_pending', (float) $wc_order->get_total() > 0 ? 'yes' : 'no' );
@@ -218,7 +220,8 @@ class PayPal_Button_Sub_Ajax_Handler {
 	 */
 	private function get_checkout_subscription_data( $cart, $product ) {
 		$cart->calculate_totals();
-		$totals = \WCPPROG_Subscription_Related::get_subscription_checkout_totals( $cart, $product );
+		$totals = \WCPPROG_Subscription_Related::get_subscription_checkout_totals( $cart, $product, true );
+		$this->recurring_breakdown = $totals['breakdown'];
 		$initial_total = $totals['initial'];
 		$recurring_total = $totals['recurring'];
 		$has_trial = $product->is_trial_enabled();
@@ -300,37 +303,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 			throw new \InvalidArgumentException( $webhook_notice );
 		}
 
-		foreach ( array( 'billing', 'shipping' ) as $type ) {
-			if ( 'shipping' === $type && ! $cart->needs_shipping() ) {
-				continue;
-			}
-			$country = $this->checkout_customer_data[ $type . '_country' ] ?? '';
-			$allowed = 'shipping' === $type ? WC()->countries->get_shipping_countries() : WC()->countries->get_allowed_countries();
-			if ( ! isset( $allowed[ $country ] ) ) {
-				throw new \InvalidArgumentException( __( 'Please select an allowed billing and shipping country.', 'woocommerce-paypal-pro-payment-gateway' ) );
-			}
-			foreach ( WC()->countries->get_address_fields( $country, $type . '_' ) as $key => $field ) {
-				$value = $this->checkout_customer_data[ $key ] ?? '';
-				if ( ! empty( $field['required'] ) && '' === trim( $value ) ) {
-					/* translators: %s: Checkout field label. */
-					throw new \InvalidArgumentException( sprintf( __( '%s is required before subscribing.', 'woocommerce-paypal-pro-payment-gateway' ), wp_strip_all_tags( $field['label'] ?? $key ) ) );
-				}
-				if ( '' === $value ) {
-					continue;
-				}
-				$validation = $field['validate'] ?? array();
-				if ( in_array( 'postcode', $validation, true ) && ! \WC_Validation::is_postcode( $value, $country )
-					|| in_array( 'phone', $validation, true ) && ! \WC_Validation::is_phone( $value )
-					|| in_array( 'email', $validation, true ) && ! is_email( $value ) ) {
-					throw new \InvalidArgumentException( __( 'Please enter valid checkout contact and address details.', 'woocommerce-paypal-pro-payment-gateway' ) );
-				}
-			}
-			$states = WC()->countries->get_states( $country );
-			$state = $this->checkout_customer_data[ $type . '_state' ] ?? '';
-			if ( $state && is_array( $states ) && $states && ! isset( $states[ $state ] ) ) {
-				throw new \InvalidArgumentException( __( 'Please select a valid state for your country.', 'woocommerce-paypal-pro-payment-gateway' ) );
-			}
-		}
+		PayPal_Checkout_Guard::validate_addresses( $this->checkout_customer_data, $cart->needs_shipping() );
 
 		$cart->check_cart_items();
 		$cart->check_cart_coupons();

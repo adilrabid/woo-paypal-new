@@ -59,7 +59,7 @@ if ( $interval && isset( $periods[ $period ] ) ) {
 }
 
 $next_payment = $order->get_next_payment_date();
-if ( $next_payment && $order->has_status( array( 'wcpprog-active', 'wcpprog-trial' ) ) ) {
+if ( $next_payment && $order->has_status( array( \WCPPROG_Subscription_Order_Handler::STATUS_ACTIVE, \WCPPROG_Subscription_Order_Handler::STATUS_TRIAL ) ) ) {
     // Stored next-payment dates are UTC; show the date in the store's timezone.
     $details[ __( 'Next payment', 'woocommerce-paypal-pro-payment-gateway' ) ] = get_date_from_gmt( $next_payment, wc_date_format() . ' ' . wc_time_format() );
 }

@@ -12,6 +12,14 @@ class WCPPROG_Subscription_Order_Handler {
 
 	const ORDER_TYPE = 'wcpprog_sub_order';
 
+	// Unprefixed statuses for WooCommerce order APIs; registration adds wc-.
+	const STATUS_TRIAL = 'wcpprog-trial';
+	const STATUS_ACTIVE = 'wcpprog-active';
+	const STATUS_ON_HOLD = 'wcpprog-on-hold';
+	const STATUS_PENDING_CANCEL = 'wcpprog-pending-cancel';
+	const STATUS_CANCELLED = 'wcpprog-cancelled';
+	const STATUS_EXPIRED = 'wcpprog-expired';
+
 	public function __construct() {
 		require_once WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-payment-history.php';
 		WCPPROG_Subscription_Payment_History::init();
@@ -209,7 +217,7 @@ class WCPPROG_Subscription_Order_Handler {
         }
 
 		$next_payment = $order->get_next_payment_date();
-		if ( $next_payment && $order->has_status( array( 'wcpprog-active', 'wcpprog-trial' ) ) ) {
+		if ( $next_payment && $order->has_status( array( self::STATUS_ACTIVE, self::STATUS_TRIAL ) ) ) {
 			// datetime-local requires an ISO-style value in the store's timezone.
 			$next_payment_display = get_date_from_gmt( $next_payment, 'Y-m-d\TH:i' );
             echo '<p class="form-field form-field-wide"><label for="wcppprog-next-payment-input">' . esc_html__( 'Next payment date:', 'woocommerce-paypal-pro-payment-gateway' ) . '</label>';
@@ -220,7 +228,7 @@ class WCPPROG_Subscription_Order_Handler {
 
 	private function can_cancel_subscription( $order ) {
 		return $order instanceof WC_Order && self::ORDER_TYPE === $order->get_type()
-			&& ! $order->has_status( array( 'wcpprog-cancelled', 'cancelled', 'wcpprog-expired' ) )
+			&& ! $order->has_status( array( self::STATUS_CANCELLED, 'cancelled', self::STATUS_EXPIRED ) )
 			&& ! in_array( strtoupper( $order->get_meta( '_paypal_subscription_status', true ) ), array( 'CANCELLED', 'EXPIRED' ), true )
 			&& $order->get_meta( '_wcppprog_paypal_subscription_id', true );
 	}
@@ -293,7 +301,7 @@ class WCPPROG_Subscription_Order_Handler {
             echo '</td>';
             echo '<td>' . esc_html( $payment['initial'] ? __( 'Initial Payment', 'woocommerce-paypal-pro-payment-gateway' ) : __( 'Recurring Payment', 'woocommerce-paypal-pro-payment-gateway' ) ) . '</td>';
             echo '<td>' . esc_html( WCPPROG_Subscription_Payment_History::format_date( $payment['date'] ) ) . '</td>';
-            echo '<td>' . esc_html( wc_get_order_status_name( $payment['status'] ) ) . '</td><td>' . esc_html( $payment['payment_method'] ) . '</td>';
+            echo '<td>' . esc_html( ucfirst(wc_get_order_status_name( $payment['status'] )) ) . '</td><td>' . esc_html( $payment['payment_method'] ) . '</td>';
             echo '<td>' . esc_html( $payment['transaction_id'] ?: '—' ) . '</td><td>' . wp_kses_post( wc_price( $payment['amount'], array( 'currency' => $payment['currency'] ) ) ) . ' ' . esc_html( $payment['currency'] ) . '</td><td>';
 
             if ( $payment['refunds'] ) {
@@ -391,14 +399,32 @@ class WCPPROG_Subscription_Order_Handler {
 			$api = new PayPal_Request_API_Injector();
 			$paypal_id = $order->get_meta( '_wcppprog_paypal_subscription_id', true );
 			$details = $api->get_paypal_subscription_details( $paypal_id );
-			$already_cancelled = $details && isset( $details->status ) && 'CANCELLED' === $details->status;
-			if ( ! $already_cancelled && ! $api->cancel_paypal_subscription( $paypal_id ) ) {
-				PayPal_Utils::log( 'Subscription cancellation failed for subscription order #' . $id, false );
-				PayPal_Utils::log_array( $api->get_last_error_from_api_call(), false );
-				wp_send_json_error( array( 'message' => __( 'PayPal could not cancel the subscription. Please try again or contact the store for help.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+			$status = strtoupper( $details->status ?? '' );
+			$terminal_statuses = array( 'CANCELLED' => self::STATUS_CANCELLED, 'EXPIRED' => self::STATUS_EXPIRED );
+			if ( ! isset( $terminal_statuses[ $status ] ) ) {
+				if ( $api->cancel_paypal_subscription( $paypal_id ) ) {
+					$status = 'CANCELLED';
+				} else {
+					// The remote status may have changed between lookup and cancellation.
+					$details = $api->get_paypal_subscription_details( $paypal_id );
+					$status = strtoupper( $details->status ?? '' );
+					if ( ! isset( $terminal_statuses[ $status ] ) ) {
+						if ( 'SUSPENDED' === $status ) {
+							$order->update_meta_data( '_paypal_subscription_status', $status );
+							$order->update_status( self::STATUS_ON_HOLD, __( 'Subscription is suspended in PayPal. Cancellation was not confirmed.', 'woocommerce-paypal-pro-payment-gateway' ) );
+						}
+						PayPal_Utils::log( 'Subscription cancellation failed for subscription order #' . $id, false );
+						PayPal_Utils::log_array( $api->get_last_error_from_api_call(), false );
+						wp_send_json_error( array( 'message' => __( 'PayPal could not cancel the subscription. Please try again or contact the store for help.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+					}
+				}
 			}
-			$order->update_meta_data( '_paypal_subscription_status', 'CANCELLED' );
-			$order->update_status( 'wcpprog-cancelled', __( 'Subscription cancelled in PayPal.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			$order->update_meta_data( '_paypal_subscription_status', $status );
+			$order->set_next_payment_date( '' );
+			$note = 'EXPIRED' === $status
+				? __( 'Subscription has expired in PayPal. Local status synchronized.', 'woocommerce-paypal-pro-payment-gateway' )
+				: __( 'Subscription cancelled in PayPal.', 'woocommerce-paypal-pro-payment-gateway' );
+			$order->update_status( $terminal_statuses[ $status ], $note );
 			PayPal_Utils::log( 'Subscription cancellation completed for subscription order #' . $id, true );
 			wp_send_json_success();
 		} catch ( Throwable $error ) {
@@ -408,7 +434,7 @@ class WCPPROG_Subscription_Order_Handler {
 	}
 
 	public function register_statuses() {
-		register_post_status( 'wc-wcpprog-trial', array(
+		register_post_status( 'wc-' . self::STATUS_TRIAL, array(
 			'label' => _x( 'Trialing', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
 			'public' => false,
 			'exclude_from_search' => false,
@@ -417,7 +443,7 @@ class WCPPROG_Subscription_Order_Handler {
 			/* translators: %s: Number of subscriptions with this status. */
 			'label_count' => _n_noop( 'Trial <span class="count">(%s)</span>', 'Trial <span class="count">(%s)</span>', 'woocommerce-paypal-pro-payment-gateway' ),
 		) );
-		register_post_status( 'wc-wcpprog-active', array(
+		register_post_status( 'wc-' . self::STATUS_ACTIVE, array(
 			'label'                     => _x( 'Active', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
 			'public'                    => false,
 			'exclude_from_search'       => false,
@@ -427,7 +453,7 @@ class WCPPROG_Subscription_Order_Handler {
 			'label_count'               => _n_noop( 'Active <span class="count">(%s)</span>', 'Active <span class="count">(%s)</span>', 'woocommerce-paypal-pro-payment-gateway' ),
 		) );
 
-		register_post_status( 'wc-wcpprog-on-hold', array(
+		register_post_status( 'wc-' . self::STATUS_ON_HOLD, array(
 			'label'                     => _x( 'On hold', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
 			'public'                    => false,
 			'show_in_admin_all_list'    => true,
@@ -436,7 +462,7 @@ class WCPPROG_Subscription_Order_Handler {
 			'label_count'               => _n_noop( 'On hold <span class="count">(%s)</span>', 'On hold <span class="count">(%s)</span>', 'woocommerce-paypal-pro-payment-gateway' ),
 		) );
 
-		register_post_status( 'wc-wcpprog-pending-cancel', array(
+		register_post_status( 'wc-' . self::STATUS_PENDING_CANCEL, array(
 			'label'                     => _x( 'Pending cancellation', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
 			'public'                    => false,
 			'show_in_admin_all_list'    => true,
@@ -445,7 +471,7 @@ class WCPPROG_Subscription_Order_Handler {
 			'label_count'               => _n_noop( 'Pending cancellation <span class="count">(%s)</span>', 'Pending cancellation <span class="count">(%s)</span>', 'woocommerce-paypal-pro-payment-gateway' ),
 		) );
 
-		register_post_status( 'wc-wcpprog-cancelled', array(
+		register_post_status( 'wc-' . self::STATUS_CANCELLED, array(
 			'label'                     => _x( 'Cancelled', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
 			'public'                    => false,
 			'show_in_admin_all_list'    => true,
@@ -454,7 +480,7 @@ class WCPPROG_Subscription_Order_Handler {
 			'label_count'               => _n_noop( 'Cancelled <span class="count">(%s)</span>', 'Cancelled <span class="count">(%s)</span>', 'woocommerce-paypal-pro-payment-gateway' ),
 		) );
 
-		register_post_status( 'wc-wcpprog-expired', array(
+		register_post_status( 'wc-' . self::STATUS_EXPIRED, array(
 			'label'                     => _x( 'Expired', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
 			'public'                    => false,
 			'show_in_admin_all_list'    => true,
@@ -467,12 +493,12 @@ class WCPPROG_Subscription_Order_Handler {
     /** Subscription lifecycle statuses, independent of the current admin screen. */
     public static function get_subscription_statuses() {
         return array(
-            'wc-wcpprog-trial'          => _x( 'Trialing', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
-            'wc-wcpprog-active'         => _x( 'Active', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
-            'wc-wcpprog-on-hold'        => _x( 'On hold', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
-            'wc-wcpprog-pending-cancel' => _x( 'Pending cancellation', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
-            'wc-wcpprog-cancelled'      => _x( 'Cancelled', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
-            'wc-wcpprog-expired'        => _x( 'Expired', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-' . self::STATUS_TRIAL          => _x( 'Trialing', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-' . self::STATUS_ACTIVE         => _x( 'Active', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-' . self::STATUS_ON_HOLD        => _x( 'On hold', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-' . self::STATUS_PENDING_CANCEL => _x( 'Pending cancellation', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-' . self::STATUS_CANCELLED      => _x( 'Cancelled', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
+            'wc-' . self::STATUS_EXPIRED        => _x( 'Expired', 'Subscription status', 'woocommerce-paypal-pro-payment-gateway' ),
         );
     }
 
