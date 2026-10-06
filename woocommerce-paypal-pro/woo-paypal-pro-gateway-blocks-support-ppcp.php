@@ -20,7 +20,7 @@ class WC_PP_PRO_Gateway_Blocks_Support_PPCP extends AbstractPaymentMethodType {
 	}
 
 	public function is_active() {
-		return !empty($this->settings['enabled']) && 'yes' === $this->settings['enabled'];
+		return $this->gateway && $this->gateway->is_available();
 	}
 
 	public function get_payment_method_script_handles() {
@@ -70,7 +70,8 @@ class WC_PP_PRO_Gateway_Blocks_Support_PPCP extends AbstractPaymentMethodType {
 			'securitycodehint'              => $this->get_setting('securitycodehint') == 'yes',
 			'icon'                          => apply_filters('woocommerce_paypal_checkout_icon', WC_PP_PRO_ADDON_URL . '/assets/img/pp-ppcp.svg'),
 			'ppcpIcons'                     => $this->get_ppcp_icons(),
-			'supports'                      => array('products', 'pay_button'),
+			'available'                     => $this->gateway && $this->gateway->is_available(),
+			'supports'                      => array('products', 'pay_button', WCPPROG_Subscription_Related::PAYMENT_REQUIREMENT),
 			'checkoutType'                  => $this->gateway && $this->gateway->is_subscription_checkout() ? 'subscription' : 'capture',
 			'ajax'                          => array(
 				'url'                        => admin_url( 'admin-ajax.php' ),

@@ -33,76 +33,86 @@ class WCPPROG_Subscription_Product extends WC_Product {
 
 
 	// one get_/set_ pair per key — get_prop()/set_prop() from WC_Data
-	public function get_subscription_recurring_price( $context = 'view' ) {
-		return $this->get_prop( 'subscription_recurring_price', $context );
+	public function get_wcppprog_sub_recurring_price( $context = 'view' ) {
+		return $this->get_prop( 'wcppprog_sub_recurring_price', $context );
 	}
 
-	public function set_subscription_recurring_price( $value ) {
-		$this->set_prop( 'subscription_recurring_price', wc_format_decimal( $value ) );
+	public function set_wcppprog_sub_recurring_price( $value ) {
+		$this->set_prop( 'wcppprog_sub_recurring_price', wc_format_decimal( $value ) );
 	}
 
-	public function get_subscription_recurring_sale_price( $context = 'view' ) {
-		return $this->get_prop( 'subscription_recurring_sale_price', $context );
+	public function get_wcppprog_sub_recurring_sale_price( $context = 'view' ) {
+		return $this->get_prop( 'wcppprog_sub_recurring_sale_price', $context );
 	}
 
-	public function set_subscription_recurring_sale_price( $value ) {
-		$this->set_prop( 'subscription_recurring_sale_price', wc_format_decimal( $value ) );
+	public function set_wcppprog_sub_recurring_sale_price( $value ) {
+		$this->set_prop( 'wcppprog_sub_recurring_sale_price', wc_format_decimal( $value ) );
 	}
 
-	public function get_subscription_recurring_billing_interval( $context = 'view' ) {
-		return (int) $this->get_prop( 'subscription_recurring_billing_interval', $context );
+	public function get_wcppprog_sub_recurring_billing_interval( $context = 'view' ) {
+		return (int) $this->get_prop( 'wcppprog_sub_recurring_billing_interval', $context );
 	}
 
-	public function set_subscription_recurring_billing_interval( $value ) {
-		$this->set_prop( 'subscription_recurring_billing_interval', intval( wc_clean( $value ) ) );
+	public function set_wcppprog_sub_recurring_billing_interval( $value ) {
+		$this->set_prop( 'wcppprog_sub_recurring_billing_interval', intval( wc_clean( $value ) ) );
 	}
 
-	public function get_subscription_recurring_billing_interval_type( $context = 'view' ) {
-		return $this->get_prop( 'subscription_recurring_billing_interval_type', $context );
+	public function get_wcppprog_sub_recurring_billing_interval_type( $context = 'view' ) {
+		return $this->get_prop( 'wcppprog_sub_recurring_billing_interval_type', $context );
 	}
 
-	public function set_subscription_recurring_billing_interval_type( $value ) {
-		$this->set_prop( 'subscription_recurring_billing_interval_type', wc_clean( $value ) );
+	public function set_wcppprog_sub_recurring_billing_interval_type( $value ) {
+		$this->set_prop( 'wcppprog_sub_recurring_billing_interval_type', wc_clean( $value ) );
 	}
 
-	public function get_subscription_reattempt_on_failure( $context = 'view' ) {
-		return $this->get_prop( 'subscription_reattempt_on_failure', $context );
+	public function get_wcppprog_sub_reattempt_on_failure( $context = 'view' ) {
+		return $this->get_prop( 'wcppprog_sub_reattempt_on_failure', $context );
 	}
 
-	public function set_subscription_reattempt_on_failure( $value ) {
-		$this->set_prop( 'subscription_reattempt_on_failure', wc_clean( $value ) );
+	public function set_wcppprog_sub_reattempt_on_failure( $value ) {
+		$this->set_prop( 'wcppprog_sub_reattempt_on_failure', wc_clean( $value ) );
 	}
 
-	public function get_subscription_recurring_billing_count( $context = 'view' ) {
-		return $this->get_prop( 'subscription_recurring_billing_count', $context );
+	public function get_wcppprog_sub_recurring_billing_count( $context = 'view' ) {
+		return $this->get_prop( 'wcppprog_sub_recurring_billing_count', $context );
 	}
 
-	public function set_subscription_recurring_billing_count( $value ) {
-		$this->set_prop( 'subscription_recurring_billing_count', intval( wc_clean( $value ) ) );
+	public function set_wcppprog_sub_recurring_billing_count( $value ) {
+		$this->set_prop( 'wcppprog_sub_recurring_billing_count', intval( wc_clean( $value ) ) );
 	}
 
-	public function get_subscription_trial_period( $context = 'view' ) {
-		return $this->get_prop( 'subscription_trial_period', $context );
+	public function get_wcppprog_sub_trial_period( $context = 'view' ) {
+		return $this->get_prop( 'wcppprog_sub_trial_period', $context );
 	}
 
-	public function set_subscription_trial_period( $value ) {
-		$this->set_prop( 'subscription_trial_period', intval( wc_clean( $value ) ) );
+	public function set_wcppprog_sub_trial_period( $value ) {
+		$this->set_prop( 'wcppprog_sub_trial_period', intval( wc_clean( $value ) ) );
 	}
 
-	public function get_subscription_trial_period_type( $context = 'view' ) {
-		return $this->get_prop( 'subscription_trial_period_type', $context );
+	public function get_wcppprog_sub_trial_period_type( $context = 'view' ) {
+		return $this->get_prop( 'wcppprog_sub_trial_period_type', $context );
 	}
 
-	public function set_subscription_trial_period_type( $value ) {
-		$this->set_prop( 'subscription_trial_period_type', wc_clean( $value ) );
+	public function set_wcppprog_sub_trial_period_type( $value ) {
+		$this->set_prop( 'wcppprog_sub_trial_period_type', wc_clean( $value ) );
 	}
 
-	public function get_subscription_trial_price( $context = 'view' ) {
-		return $this->get_prop( 'subscription_trial_price', $context );
+	public function get_wcppprog_sub_trial_price( $context = 'view' ) {
+		return $this->get_prop( 'wcppprog_sub_trial_price', $context );
 	}
 
-	public function set_subscription_trial_price( $value ) {
-		$this->set_prop( 'subscription_trial_price', wc_format_decimal( $value ) );
+	public function set_wcppprog_sub_trial_price( $value ) {
+		$this->set_prop( 'wcppprog_sub_trial_price', wc_format_decimal( $value ) );
+	}
+
+	/** Runtime plan cache, persisted with save_meta_data(), not an editable product setting. */
+	public function get_wcppprog_sub_ppcp_plan_cache( $context = 'view' ) {
+		$cache = $this->get_meta( '_wcppprog_sub_ppcp_plan_cache', true, $context );
+		return is_array( $cache ) ? $cache : array();
+	}
+
+	public function set_wcppprog_sub_ppcp_plan_cache( $value ) {
+		$this->update_meta_data( '_wcppprog_sub_ppcp_plan_cache', is_array( $value ) ? $value : array() );
 	}
 
 	/**
@@ -110,7 +120,7 @@ class WCPPROG_Subscription_Product extends WC_Product {
 	 */
 	public function get_due_today_amount() {
 		if ( $this->is_trial_enabled() ) {
-			return (float) $this->get_subscription_trial_price();
+			return (float) $this->get_wcppprog_sub_trial_price();
 		}
 
 		// No trial — due today is the normal recurring price (respecting sale price).
@@ -142,14 +152,14 @@ class WCPPROG_Subscription_Product extends WC_Product {
 	 * Builds "Free for 14 days, then " / "$4.99 for 14 days, then " prefix, if a trial is configured.
 	 */
 	protected function get_trial_prefix() {
-		$trial_length = (int) $this->get_subscription_trial_period();
+		$trial_length = (int) $this->get_wcppprog_sub_trial_period();
 
 		if ( $trial_length <= 0 ) {
 			return '';
 		}
 
-		$trial_period_type = $this->get_subscription_trial_period_type();
-		$trial_price       = $this->get_subscription_trial_price();
+		$trial_period_type = $this->get_wcppprog_sub_trial_period_type();
+		$trial_price       = $this->get_wcppprog_sub_trial_price();
 		$trial_price       = ( '' === $trial_price ) ? 0 : (float) $trial_price;
 
 		$period_label = $this->get_period_label( $trial_period_type, $trial_length );
@@ -180,8 +190,8 @@ class WCPPROG_Subscription_Product extends WC_Product {
 	 * Builds " / month" / " every 3 months" recurring suffix.
 	 */
 	protected function get_recurring_suffix() {
-		$interval = $this->get_subscription_recurring_billing_interval();
-		$period   = $this->get_subscription_recurring_billing_interval_type();
+		$interval = $this->get_wcppprog_sub_recurring_billing_interval();
+		$period   = $this->get_wcppprog_sub_recurring_billing_interval_type();
 
 		if ( ! $period ) {
 			return '';
@@ -243,7 +253,7 @@ class WCPPROG_Subscription_Product extends WC_Product {
 	}
 
 	public function is_trial_enabled() {
-		$trial_period = (int) $this->get_subscription_trial_period();
+		$trial_period = (int) $this->get_wcppprog_sub_trial_period();
 		if ( $trial_period > 0 ) {
 			return true;
 		}

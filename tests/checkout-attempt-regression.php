@@ -128,7 +128,7 @@ namespace {
     WC()->cart->hash = 'changed-cart';
     check(!$attempt::get_order('payment', $attempt::fingerprint($gateway)), 'Cart changes require fresh checkout');
     $attempt::remember($order, 'subscription', 'subscription-fingerprint');
-    $order->meta['_paypal_subscription_id'] = 'I-SUB';
+    $order->meta['_wcppprog_paypal_subscription_id'] = 'I-SUB';
     $api::$response = (object) array('id' => 'I-SUB', 'status' => 'APPROVAL_PENDING');
     check($attempt::get_approval_id($order, 'subscription') === 'I-SUB', 'Reuse unapproved subscription');
     $api::$response->status = 'ACTIVE';

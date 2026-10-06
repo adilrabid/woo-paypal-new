@@ -25,6 +25,7 @@ include_once( 'class-tthq-paypal-checkout-attempt.php' );
 include_once( 'class-tthq-paypal-button-ajax-handler.php' );
 include_once( 'class-tthq-paypal-button-sub-ajax-handler.php' );
 include_once( 'class-tthq-paypal-acdc-related.php' );
+include_once( 'class-tthq-paypal-checkout-guard.php' );
 
 //Onboarding related includes
 include_once( 'onboarding-related/class-tthq-paypal-onboarding.php' );//PPCP Onboarding related functions.
@@ -32,7 +33,7 @@ include_once( 'onboarding-related/class-tthq-paypal-onboarding-serverside.php' )
 
 /**
  * The Main class to handle the new PayPal library related tasks. 
- * It initializes when this file is inlcuded.
+ * It initializes when this file is included.
  */
 class PayPal_Main {
 

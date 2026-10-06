@@ -69,7 +69,7 @@ registerPaymentMethod({
     label: <Label />,
     content: <Content />,
     edit: <Edit />,
-    canMakePayment: () => true,
+    canMakePayment: () => getPayPalPPCPSettings('available', false),
     ariaLabel: labelText,
     placeOrderButton: PayPalButton,
     supports: {

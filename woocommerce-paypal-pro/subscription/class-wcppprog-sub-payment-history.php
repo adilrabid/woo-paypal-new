@@ -29,7 +29,14 @@ class WCPPROG_Subscription_Payment_History {
         $date = $payment->get_date_paid();
         $created = $payment->get_date_created();
         $refunds = array();
-        foreach ( $payment->get_refunds() as $refund ) {
+        // Subscription admin screens filter the default order statuses. Refunds
+        // always use completed; query explicitly instead of using that filter/cache.
+        foreach ( wc_get_orders( array(
+            'type' => 'shop_order_refund',
+            'parent' => $payment->get_id(),
+            'status' => 'wc-completed',
+            'limit' => -1,
+        ) ) as $refund ) {
             $refund_date = $refund->get_date_created();
             $refunds[] = array(
                 'id' => $refund->get_meta( '_wcppprog_paypal_refund_id', true ) ?: ( '#' . $refund->get_id() ),
@@ -49,7 +56,7 @@ class WCPPROG_Subscription_Payment_History {
             'amount' => $payment->get_total(),
             'currency' => $payment->get_currency(),
             'refunds' => $refunds,
-            'received' => (float) $payment->get_total() > 0 && ( $date || $payment->is_paid() || $payment->get_total_refunded() ),
+            'received' => (float) $payment->get_total() > 0 && ( $date || $payment->is_paid() || $refunds ),
         );
     }
 
