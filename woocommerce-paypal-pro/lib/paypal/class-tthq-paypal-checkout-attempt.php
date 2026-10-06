@@ -18,16 +18,23 @@ class PayPal_Checkout_Attempt {
 		) ) );
 	}
 
-	public static function get_order( $type, $fingerprint ) {
+	public static function get_order( $type, $fingerprint, $recover_subscription = false ) {
 		$id = absint( WC()->session->get( 'wcpprog_checkout_attempt_' . $type ) );
 		$order = $id ? wc_get_order( $id ) : false;
 		if ( ! $order || 'shop_order' !== $order->get_type()
 			|| 'paypal_checkout' !== $order->get_payment_method()
 			|| (int) $order->get_customer_id() !== get_current_user_id()
-			|| ! $order->has_status( 'pending' ) || $order->get_date_paid() || $order->get_transaction_id()
-			|| $order->get_meta( '_paypal_transaction_id', true )
-			|| $order->get_meta( '_wcpprog_subscription_order_id', true )
 			|| $fingerprint !== $order->get_meta( '_wcpprog_checkout_fingerprint', true ) ) {
+			return false;
+		}
+		// A webhook may have completed this checkout before the browser received
+		// approval. Keep its remote ID available to the retry guard, even if paid.
+		if ( $recover_subscription && 'subscription' === $type && $order->get_meta( '_wcppprog_paypal_subscription_id', true ) ) {
+			return $order;
+		}
+		if ( ! $order->has_status( 'pending' ) || $order->get_date_paid() || $order->get_transaction_id()
+			|| $order->get_meta( '_paypal_transaction_id', true )
+			|| $order->get_meta( '_wcpprog_subscription_order_id', true ) ) {
 			return false;
 		}
 		return $order;

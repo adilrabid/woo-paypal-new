@@ -135,5 +135,23 @@ namespace {
     check($attempt::get_approval_id($order, 'subscription') instanceof WP_Error, 'Never replace active subscription while waiting for payment');
     $order->meta['_wcpprog_subscription_order_id'] = 55;
     check(!$attempt::get_order('subscription', 'subscription-fingerprint'), 'Approved local subscription is not reusable');
+    check($attempt::get_order('subscription', 'subscription-fingerprint', true) === $order, 'Recover linked subscription instead of creating another');
+    $order->status = 'processing';
+    $order->paid = 'today';
+    $order->transaction = 'SALE';
+    check($attempt::get_order('subscription', 'subscription-fingerprint', true) === $order, 'Recover checkout completed by payment webhook');
+    unset($order->meta['_wcpprog_subscription_order_id']);
+    $recovered = $attempt::get_order('subscription', 'subscription-fingerprint', true);
+    check($recovered === $order && $attempt::get_approval_id($recovered, 'subscription') instanceof WP_Error, 'Active remote subscription remains guarded before local linking');
+    check(!$attempt::get_order('subscription', 'changed-fingerprint', true), 'Recovery still requires matching checkout');
+    $order->customer = 9;
+    check(!$attempt::get_order('subscription', 'subscription-fingerprint', true), 'Recovery still requires ownership');
+    $order->customer = 0;
+    $order->method = 'other';
+    check(!$attempt::get_order('subscription', 'subscription-fingerprint', true), 'Recovery still requires PayPal gateway');
+    $order->method = 'paypal_checkout';
+    WC()->session->set('wcpprog_checkout_attempt_subscription', 999);
+    check(!$attempt::get_order('subscription', 'subscription-fingerprint', true), 'Recovery still requires session attempt');
+    check(!$attempt::get_order('payment', $fingerprint, true), 'Subscription recovery must not allow paid one-time orders');
     echo "Checkout attempt regression checks passed.\n";
 }

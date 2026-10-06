@@ -233,8 +233,15 @@ class PayPal_Utility_IPN_Related {
 		$wc_order->add_order_note(sprintf(__('PayPal subscription completed. PayPal Subscription ID: %s', 'woocommerce-paypal-pro-payment-gateway'), $paypal_subscription_id));
 
 		$subscription = self::create_subscription_order($wc_order, $data, $txn_data, $ipn_data);
+		// Webhook recovery can own the lock while approval reaches this point.
+		// Retry under the same lock so we only reuse a fully persisted result.
+		for ( $retry = 0; $retry < 10 && is_wp_error( $subscription ) && 'subscription_busy' === $subscription->get_error_code(); $retry++ ) {
+			usleep( 250000 );
+			$subscription = self::create_subscription_order( $wc_order, $data, $txn_data, $ipn_data );
+		}
 		if ( is_wp_error( $subscription ) ) { return $subscription; }
 		WC()->cart->empty_cart();
+		WC()->session->set( 'wcpprog_checkout_attempt_subscription', null );
 
 		return $wc_order;
 	}
@@ -268,12 +275,12 @@ class PayPal_Utility_IPN_Related {
 	public static function create_subscription_order( $order, $data, $txn_data, $ipn_data ) {
 		$id = $order->get_meta( '_wcppprog_paypal_subscription_id', true );
 		$lock = 'wcpprog_subscription_create_' . md5( $id );
-		if ( ! $id || ! add_option( $lock, time(), '', false ) ) {
+		if ( ! $id || ! ( $token = PayPal_Lock::acquire( $lock ) ) ) {
 			return new \WP_Error( 'subscription_busy', 'Subscription creation is busy. Please retry.' );
 		}
 		$locked = true;
-		register_shutdown_function( static function () use ( $lock, &$locked ) {
-			if ( $locked ) { delete_option( $lock ); }
+		register_shutdown_function( static function () use ( $lock, $token, &$locked ) {
+			if ( $locked ) { PayPal_Lock::release( $lock, $token ); }
 		} );
 		try {
 			$order = wc_get_order( $order->get_id() );
@@ -292,7 +299,7 @@ class PayPal_Utility_IPN_Related {
 			PayPal_Utils::log( $error->getMessage(), false );
 			return new \WP_Error( 'subscription_creation_failed', 'Unable to create subscription order. Please retry.' );
 		} finally {
-			delete_option( $lock );
+			PayPal_Lock::release( $lock, $token );
 			$locked = false;
 		}
 	}

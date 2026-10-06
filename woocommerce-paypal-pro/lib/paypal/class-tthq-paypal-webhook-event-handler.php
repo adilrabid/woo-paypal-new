@@ -229,19 +229,20 @@ class PayPal_Webhook_Event_Handler {
 	/** Serialize all webhook reads and writes for the same subscription. */
 	private function with_subscription_webhook_lock( $paypal_sub_id, $mode, $callback ) {
 		$lock = 'wcpprog_payment_lock_' . md5( $mode . $paypal_sub_id );
-		if ( ! add_option( $lock, time(), '', false ) ) {
+		$token = PayPal_Lock::acquire( $lock );
+		if ( ! $token ) {
 			wp_die( 'Subscription payment is being processed. Retry later.', '', array( 'response' => 503 ) );
 		}
 		$locked = true;
-		register_shutdown_function( static function () use ( $lock, &$locked ) {
+		register_shutdown_function( static function () use ( $lock, $token, &$locked ) {
 			if ( $locked ) {
-				delete_option( $lock );
+				PayPal_Lock::release( $lock, $token );
 			}
 		} );
 		try {
 			$callback();
 		} finally {
-			delete_option( $lock );
+			PayPal_Lock::release( $lock, $token );
 			$locked = false;
 		}
 	}
@@ -298,30 +299,55 @@ class PayPal_Webhook_Event_Handler {
 		if ( empty( $existing ) ) {
 			$amount = $r['amount']['total'] ?? ( $r['amount']['value'] ?? '' );
 			$currency = $r['amount']['currency'] ?? ( $r['amount']['currency_code'] ?? '' );
-			if ( ! is_numeric( $amount ) || $currency !== $sub_order->get_currency()
-				|| wc_format_decimal( $amount, wc_get_price_decimals() ) !== wc_format_decimal( $sub_order->get_total(), wc_get_price_decimals() ) ) {
-				PayPal_Utils::log( 'Webhook: payment ' . $transaction_id . ' amount/currency differs from subscription #' . $sub_order->get_id() . '. Review the PayPal payment and recurring breakdown before retrying.', false );
-				wp_die( 'Payment does not match subscription totals. Review required.', '', array( 'response' => 503 ) );
+			if ( ! is_numeric( $amount ) || (float) $amount <= 0 || ! is_string( $currency ) || ! preg_match( '/^[A-Z]{3}$/', $currency ) ) {
+				wp_die( 'Invalid subscription payment amount/currency.', '', array( 'response' => 503 ) );
 			}
+			$needs_review = $currency !== $sub_order->get_currency()
+				|| wc_format_decimal( $amount, wc_get_price_decimals() ) !== wc_format_decimal( $sub_order->get_total(), wc_get_price_decimals() );
 			PayPal_Utils::log( 'Webhook: creating renewal order for subscription order #' . $sub_order->get_id(), true );
 			$order = wc_create_order( array( 'customer_id' => $sub_order->get_customer_id() ) );
 			$order->set_payment_method( 'paypal_checkout' );
 			$order->set_payment_method_title( __( 'PayPal Checkout', 'woocommerce-paypal-pro-payment-gateway' ) );
 			$order->set_billing_address( $sub_order->get_address( 'billing' ) );
 			$order->set_shipping_address( $sub_order->get_address( 'shipping' ) );
-			foreach ( $sub_order->get_items( array( 'line_item', 'shipping', 'fee', 'tax', 'coupon' ) ) as $item ) {
-				$order->add_item( PayPal_Utility_IPN_Related::copy_subscription_line_item( $item ) );
-			}
-			foreach ( array( 'currency', 'prices_include_tax', 'shipping_total', 'discount_total', 'discount_tax', 'cart_tax', 'shipping_tax', 'total' ) as $prop ) {
-				$order->{ 'set_' . $prop }( $sub_order->{ 'get_' . $prop }( 'edit' ) );
+			if ( $needs_review ) {
+				// A verified sale can collect arrears or a changed price. Preserve the
+				// receipt without inventing product/tax allocations or fulfilling it.
+				$item = new \WC_Order_Item_Fee();
+				$item->set_name( __( 'PayPal subscription payment - allocation pending review', 'woocommerce-paypal-pro-payment-gateway' ) );
+				$item->set_tax_status( 'none' );
+				$item->set_amount( $amount );
+				$item->set_total( $amount );
+				$order->add_item( $item );
+				$order->set_currency( $currency );
+				$order->set_total( $amount );
+				$order->set_transaction_id( $transaction_id );
+				$order->set_status( 'on-hold' );
+				$order->update_meta_data( '_wcpprog_payment_review_required', 'yes' );
+				$order->update_meta_data( '_wcpprog_expected_recurring_total', $sub_order->get_total() );
+				$order->update_meta_data( '_wcpprog_expected_recurring_currency', $sub_order->get_currency() );
+			} else {
+				foreach ( $sub_order->get_items( array( 'line_item', 'shipping', 'fee', 'tax', 'coupon' ) ) as $item ) {
+					$order->add_item( PayPal_Utility_IPN_Related::copy_subscription_line_item( $item ) );
+				}
+				foreach ( array( 'currency', 'prices_include_tax', 'shipping_total', 'discount_total', 'discount_tax', 'cart_tax', 'shipping_tax', 'total' ) as $prop ) {
+					$order->{ 'set_' . $prop }( $sub_order->{ 'get_' . $prop }( 'edit' ) );
+				}
 			}
 			$order->update_meta_data( '_wcppprog_paypal_subscription_id', $paypal_sub_id );
 			$order->update_meta_data( '_paypal_transaction_id', $transaction_id );
 			$order->update_meta_data( '_wcpprog_subscription_order_id', $sub_order->get_id() );
 			$order->save();
-			$order->payment_complete( $transaction_id );
-			/* translators: %s: PayPal transaction ID. */
-			$order->add_order_note( sprintf( __( 'PayPal subscription renewal payment completed. Transaction ID: %s', 'woocommerce-paypal-pro-payment-gateway' ), $transaction_id ) );
+			if ( $needs_review ) {
+				/* translators: 1: transaction ID, 2: received amount, 3: received currency, 4: expected amount, 5: expected currency. */
+				$note = sprintf( __( 'PayPal payment received. Transaction ID: %1$s. Received %2$s %3$s; expected recurring total %4$s %5$s. Review required: this may include an outstanding balance or a price change. The payment is recorded on hold; reconcile product and tax allocations before completing this order. Do not charge the customer again.', 'woocommerce-paypal-pro-payment-gateway' ), $transaction_id, $amount, $currency, $sub_order->get_total(), $sub_order->get_currency() );
+				$order->add_order_note( $note );
+				$sub_order->add_order_note( $note );
+			} else {
+				$order->payment_complete( $transaction_id );
+				/* translators: %s: PayPal transaction ID. */
+				$order->add_order_note( sprintf( __( 'PayPal subscription renewal payment completed. Transaction ID: %s', 'woocommerce-paypal-pro-payment-gateway' ), $transaction_id ) );
+			}
 			$sub_order->add_related_order_id( $order->get_id() );
 			PayPal_Utils::log( 'Webhook: renewal order #' . $order->get_id() . ' created for transaction ' . $transaction_id, true );
 		} else {
@@ -329,7 +355,9 @@ class PayPal_Webhook_Event_Handler {
 		}
 		// The initial charge (including a paid trial) is linked to the parent
 		// above. A new renewal order marks the start of regular billing.
-		if ( empty( $existing ) || (int) $existing[0]->get_id() !== (int) $sub_order->get_parent_order_id_ref() ) {
+		$payment_order = empty( $existing ) ? $order : $existing[0];
+		if ( 'yes' !== $payment_order->get_meta( '_wcpprog_payment_review_required', true )
+			&& (int) $payment_order->get_id() !== (int) $sub_order->get_parent_order_id_ref() ) {
 			$sub_order->update_meta_data( '_wcpprog_regular_payment_received', 'yes' );
 		}
 		$this->update_subscription_billing_schedule( $sub_order, $details );

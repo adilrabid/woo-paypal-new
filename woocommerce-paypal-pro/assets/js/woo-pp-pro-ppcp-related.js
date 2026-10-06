@@ -243,6 +243,11 @@ class Woo_PP_Pro_PPCP_Subscription_Btn extends Woo_PP_Pro_PPCP_Btn {
 
         try {
             const data = await this.ppcpAjax(wc_paypal_checkout_params.create_sub_order_ajax_action, fields);
+            if (data?.redirect_to) {
+                window.location.href = data.redirect_to;
+                // Navigation finishes this checkout; do not open another approval.
+                return new Promise(() => {});
+            }
             return data?.subscription_id;
         } catch (error) {
             console.error(error);

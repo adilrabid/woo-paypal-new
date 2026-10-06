@@ -110,8 +110,13 @@ class PayPal_Button_Sub_Ajax_Handler {
 
         $plan_id = isset($plan['plan_id']) ? sanitize_text_field($plan['plan_id']) : '';
 		$fingerprint = PayPal_Checkout_Attempt::fingerprint( $wc_paypal_ppcp, array( $plan_id, $subscription_data, $this->checkout_customer_data, $this->recurring_breakdown ) );
-		$previous_order = PayPal_Checkout_Attempt::get_order( 'subscription', $fingerprint );
+		$previous_order = PayPal_Checkout_Attempt::get_order( 'subscription', $fingerprint, true );
 		if ( $previous_order ) {
+			if ( $previous_order->get_meta( '_wcpprog_subscription_order_id', true ) ) {
+				WC()->cart->empty_cart();
+				WC()->session->set( 'wcpprog_checkout_attempt_subscription', null );
+				wp_send_json_success( array( 'redirect_to' => $previous_order->get_checkout_order_received_url() ) );
+			}
 			$approval_id = PayPal_Checkout_Attempt::get_approval_id( $previous_order, 'subscription' );
 			if ( is_wp_error( $approval_id ) ) {
 				wp_send_json_error( array( 'message' => $approval_id->get_error_message() ) );

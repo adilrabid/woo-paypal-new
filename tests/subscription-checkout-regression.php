@@ -1,6 +1,11 @@
 <?php
 /** Standalone regression checks: php tests/subscription-checkout-regression.php */
 namespace TTHQ\WC_PP_PRO\Lib\PayPal {
+    // Advance the competing webhook deterministically without real sleeps.
+    function usleep($microseconds) {
+        $GLOBALS['approval_waits']++;
+        if (isset($GLOBALS['during_approval_wait'])) { ($GLOBALS['during_approval_wait'])(); }
+    }
     class PayPal_Request_API_Injector {
         public static $details;
         public function get_paypal_subscription_details($id) { return self::$details; }
@@ -12,6 +17,7 @@ namespace TTHQ\WC_PP_PRO\Lib\PayPal {
     }
 }
 namespace {
+    require __DIR__ . '/paypal-lock-fixture.php';
     define('ABSPATH', __DIR__);
     define('WC_PP_PRO_ADDON_PATH', dirname(__DIR__) . '/woocommerce-paypal-pro');
     function __($text, ...$args) { return $text; }
@@ -33,7 +39,7 @@ namespace {
     function wc_get_order($id) { return $GLOBALS['parent']; }
     function add_option($key, $value, ...$args) { if (isset($GLOBALS['locks'][$key])) { return false; } $GLOBALS['locks'][$key] = $value; return true; }
     function delete_option($key) { unset($GLOBALS['locks'][$key]); }
-    class WP_Error { public function __construct(public $code, public $message) {} public function get_error_message() { return $this->message; } }
+    class WP_Error { public function __construct(public $code, public $message) {} public function get_error_message() { return $this->message; } public function get_error_code() { return $this->code; } }
     function is_wp_error($value) { return $value instanceof WP_Error; }
     class WCPPROG_Subscription_Order_Handler {
         const STATUS_TRIAL = 'wcpprog-trial';
@@ -124,6 +130,7 @@ namespace {
             return $types ? array(new TestShippingItem(), new TestFeeItem(), new TestTaxItem(), new TestCouponItem()) : array(new TestItem());
         }
         public function update_meta_data(...$args) {}
+        public function add_order_note($note) {}
         public function save() {}
     };
     $GLOBALS['parent'] = $parent;
@@ -139,6 +146,8 @@ namespace {
     check($subscription->calculated === null, 'Preserve calculated recurring totals without repricing');
     $cart = new class {
         public $items;
+        public $emptied = false;
+        public function empty_cart() { $this->emptied = true; }
         public $stock_error = false;
         public function get_cart() { return $this->items; }
         public function is_empty() { return !$this->items; }
@@ -198,7 +207,11 @@ namespace {
     $cart->stock_error = false;
     $handler->wc_paypal_ppcp->notice = 'Missing webhook';
     $reject('webhook');
-    $GLOBALS['wc']->session = new class { public function get($key) { return 10; } };
+    $GLOBALS['wc']->session = new class {
+        public $cleared_attempt = false;
+        public function get($key) { return 10; }
+        public function set($key, $value) { if ($key === 'wcpprog_checkout_attempt_subscription' && $value === null) { $this->cleared_attempt = true; } }
+    };
     $GLOBALS['approval_order'] = new class {
         public function get_id() { return 10; }
         public function get_customer_id() { return 1; }
@@ -247,6 +260,33 @@ namespace {
     $lock = 'wcpprog_subscription_create_' . md5('I-TEST');
     $GLOBALS['locks'][$lock] = time();
     check(is_wp_error(\TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utility_IPN_Related::create_subscription_order($parent, array(), array(), array())), 'Concurrent creator must retry');
+    $utils = \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Utility_IPN_Related::class;
+    $saved_approval_order = $GLOBALS['approval_order'];
+    $GLOBALS['approval_order'] = $parent;
+    $GLOBALS['approval_waits'] = 0;
+    $GLOBALS['existing_subscriptions'] = array();
+    $GLOBALS['during_approval_wait'] = static function () use ($lock, $existing) {
+        if ($GLOBALS['approval_waits'] === 2) {
+            $GLOBALS['existing_subscriptions'] = array($existing);
+            unset($GLOBALS['locks'][$lock]);
+        }
+    };
+    $last_created = WCPPROG_WC_Subscription_Order::$last;
+    check($utils::complete_post_subscription_payment_processing(array('subscriptionID' => 'I-TEST'), array(), array()) === $parent, 'Approval succeeds after competing webhook finishes');
+    check($GLOBALS['approval_waits'] === 2 && $cart->emptied, 'Approval waits and empties cart after recovery');
+    check(WC()->session->cleared_attempt, 'Successful checkout clears attempt so a later intentional purchase is allowed');
+    check(WCPPROG_WC_Subscription_Order::$last === $last_created, 'Recovery must not construct another subscription');
+    unset($GLOBALS['during_approval_wait']);
+    $GLOBALS['locks'][$lock] = time();
+    $GLOBALS['approval_waits'] = 0;
+    $cart->emptied = false;
+    WC()->session->cleared_attempt = false;
+    $result = $utils::complete_post_subscription_payment_processing(array('subscriptionID' => 'I-TEST'), array(), array());
+    check(is_wp_error($result) && $result->get_error_code() === 'subscription_busy', 'Long-running creator retains recoverable error');
+    check($GLOBALS['approval_waits'] === 10 && !$cart->emptied, 'Wait is bounded and incomplete checkout keeps cart');
+    check(!WC()->session->cleared_attempt, 'Timed-out approval preserves attempt for safe retry');
+    check(isset($GLOBALS['locks'][$lock]), 'Waiting approval must not release webhook lock');
+    $GLOBALS['approval_order'] = $saved_approval_order;
     unset($GLOBALS['locks'][$lock]);
     $GLOBALS['existing_subscriptions'] = array();
     require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-webhook-event-handler.php';
@@ -268,7 +308,7 @@ namespace {
     unset($GLOBALS['locks'][$foreign_lock]);
     $GLOBALS['approval_order'] = $parent;
     $own_lock = 'wcpprog_payment_lock_' . md5('sandboxI-TEST');
-    $GLOBALS['locks'][$own_lock] = 123;
+    $GLOBALS['locks'][$own_lock] = time();
     $status = null;
     try { $receive->invoke($webhook, 'sale_completed', array('resource' => array('billing_agreement_id' => 'I-TEST', 'id' => 'SALE-1')), 'sandbox'); } catch (\RuntimeException $error) { $status = $error->getMessage(); }
     check($status === '503', 'Our concurrent payment still requests retry');

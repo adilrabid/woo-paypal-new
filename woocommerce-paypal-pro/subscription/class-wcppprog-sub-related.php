@@ -308,7 +308,7 @@ class WCPPROG_Subscription_Related {
         return $price_html . $note;
     }
     public function custom_product_type_inventory_js() {
-        global $post;
+        global $post, $pagenow;
         if ( ! $post || 'product' !== get_post_type( $post ) ) {
             return;
         }
@@ -317,6 +317,7 @@ class WCPPROG_Subscription_Related {
             jQuery(function ($) {
                 $('#inventory_product_data .show_if_simple.show_if_variable').addClass('show_if_<?php echo esc_js( self::SUBSCRIPTION_PRODUCT_TYPE ); ?>');
 
+                <?php if ( 'post.php' === $pagenow ) : // Only lock types on the edit screen, not Add Product. ?>
                 const $type = $('#product-type');
                 const subscriptionType = '<?php echo esc_js( self::SUBSCRIPTION_PRODUCT_TYPE ); ?>';
                 $type.on('change', function () {
@@ -327,6 +328,7 @@ class WCPPROG_Subscription_Related {
                     }
                 });
                 $type.trigger('change');
+                <?php endif; ?>
             });
         </script>
         <?php

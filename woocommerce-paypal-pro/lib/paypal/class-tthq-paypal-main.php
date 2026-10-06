@@ -26,6 +26,7 @@ include_once( 'class-tthq-paypal-button-ajax-handler.php' );
 include_once( 'class-tthq-paypal-button-sub-ajax-handler.php' );
 include_once( 'class-tthq-paypal-acdc-related.php' );
 include_once( 'class-tthq-paypal-checkout-guard.php' );
+include_once( 'class-tthq-paypal-lock.php' );
 
 //Onboarding related includes
 include_once( 'onboarding-related/class-tthq-paypal-onboarding.php' );//PPCP Onboarding related functions.
