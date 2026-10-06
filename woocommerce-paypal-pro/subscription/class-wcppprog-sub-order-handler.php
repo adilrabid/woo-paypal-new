@@ -20,6 +20,9 @@ class WCPPROG_Subscription_Order_Handler {
 	const STATUS_CANCELLED = 'wcpprog-cancelled';
 	const STATUS_EXPIRED = 'wcpprog-expired';
 
+	// My Account endpoint key used in hooks; also the default public URL slug.
+	const ACCOUNT_ENDPOINT = 'wcppprog-subscriptions';
+
 	public function __construct() {
 		require_once WC_PP_PRO_ADDON_PATH . '/subscription/class-wcppprog-sub-payment-history.php';
 		WCPPROG_Subscription_Payment_History::init();
@@ -53,7 +56,16 @@ class WCPPROG_Subscription_Order_Handler {
         $this->register_statuses();
 
         // Adds a endpoint publicly accessible for subscription pages for showing subscription orders in front-end customer account dashboard.
-        add_rewrite_endpoint( 'wcppprog-subscriptions', EP_ROOT | EP_PAGES );
+        add_rewrite_endpoint( self::get_account_endpoint_slug(), EP_ROOT | EP_PAGES );
+    }
+
+    /**
+     * Public URL slug for the My Account subscriptions page.
+     * Store owners can change it with the 'wcppprog_subscriptions_endpoint_slug' filter.
+     */
+    public static function get_account_endpoint_slug() {
+        $slug = sanitize_title( apply_filters( 'wcppprog_subscriptions_endpoint_slug', self::ACCOUNT_ENDPOINT ) );
+        return $slug ?: self::ACCOUNT_ENDPOINT;
     }
 
     /** Refresh cached routes only when our endpoint is missing, including after upgrades. */
@@ -63,7 +75,7 @@ class WCPPROG_Subscription_Order_Handler {
             return;
         }
         foreach ( (array) get_option( 'rewrite_rules', array() ) as $query ) {
-            if ( is_string( $query ) && false !== strpos( $query, '&wcppprog-subscriptions=' ) ) {
+            if ( is_string( $query ) && false !== strpos( $query, '&' . self::get_account_endpoint_slug() . '=' ) ) {
                 return;
             }
         }
@@ -523,7 +535,7 @@ class WCPPROG_Subscription_Order_Handler {
 
     /** Register with WooCommerce so its account title and endpoint handling apply. */
     public function subscriptions_wc_query_vars( $vars ) {
-        $vars['wcppprog-subscriptions'] = 'wcppprog-subscriptions';
+        $vars[ self::ACCOUNT_ENDPOINT ] = self::get_account_endpoint_slug();
         return $vars;
     }
 
