@@ -57,10 +57,22 @@ class WCPPROG_Subscription_Related {
         add_filter( 'woocommerce_cart_needs_payment', array( $this, 'enable_payment_for_zero_cost_trial_subscription' ), 10, 2 );
         add_filter( 'woocommerce_available_payment_gateways', array( $this, 'restrict_subscription_payment_gateways' ), 100 );
 
+        add_filter( 'woocommerce_email_enabled_customer_on_hold_order', array( $this, 'review_payment_on_hold_email_enabled' ), 10, 2 );
+
         add_action( 'woocommerce_' . self::SUBSCRIPTION_PRODUCT_TYPE . '_add_to_cart', 'woocommerce_simple_add_to_cart' );
 
         // Add subscription order link meta box in main order details page.
         add_action( 'add_meta_boxes', array( $this, 'add_subscription_order_link_metabox' ) );
+    }
+
+    public function review_payment_on_hold_email_enabled( $enabled, $order ) {
+        // This receipt is held for allocation review, not awaiting payment.
+        if ( $order instanceof WC_Order && 'paypal_checkout' === $order->get_payment_method()
+            && 'yes' === $order->get_meta( '_wcpprog_payment_review_required', true )
+            && $order->get_meta( '_paypal_transaction_id', true ) ) {
+            return false;
+        }
+        return $enabled;
     }
 
     public function init_time_tasks() {

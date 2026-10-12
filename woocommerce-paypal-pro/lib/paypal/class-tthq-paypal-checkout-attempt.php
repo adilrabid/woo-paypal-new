@@ -29,15 +29,20 @@ class PayPal_Checkout_Attempt {
 		}
 		// A webhook may have completed this checkout before the browser received
 		// approval. Keep its remote ID available to the retry guard, even if paid.
+		// Recovery is not permission to reopen approval: get_approval_id checks that.
 		if ( $recover_subscription && 'subscription' === $type && $order->get_meta( '_wcppprog_paypal_subscription_id', true ) ) {
 			return $order;
 		}
-		if ( ! $order->has_status( 'pending' ) || $order->get_date_paid() || $order->get_transaction_id()
-			|| $order->get_meta( '_paypal_transaction_id', true )
-			|| $order->get_meta( '_wcpprog_subscription_order_id', true ) ) {
+		if ( ! self::can_resume_approval( $order ) ) {
 			return false;
 		}
 		return $order;
+	}
+
+	private static function can_resume_approval( $order ) {
+		return $order->has_status( 'pending' ) && ! $order->get_date_paid() && ! $order->get_transaction_id()
+			&& ! $order->get_meta( '_paypal_transaction_id', true )
+			&& ! $order->get_meta( '_wcpprog_subscription_order_id', true );
 	}
 
 	/** Return the existing approval ID only after checking its server-side status. */
@@ -58,6 +63,11 @@ class PayPal_Checkout_Attempt {
 		}
 		$allowed = 'subscription' === $type ? array( 'APPROVAL_PENDING' ) : array( 'CREATED', 'PAYER_ACTION_REQUIRED', 'APPROVED' );
 		if ( in_array( $details->status ?? '', $allowed, true ) ) {
+			if ( ! self::can_resume_approval( $order ) ) {
+				// Do not replace this still-open remote attempt either: it could
+				// still be approved in an older browser tab.
+				return new \WP_Error( 'paypal_retry_order_not_pending', __( 'Your previous order can no longer resume PayPal approval. Please check your orders or contact the store before trying another payment.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			}
 			return $id;
 		}
 		$closed = 'subscription' === $type ? array( 'CANCELLED', 'EXPIRED' ) : array( 'VOIDED' );

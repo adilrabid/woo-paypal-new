@@ -598,6 +598,11 @@ class PayPal_Button_Sub_Ajax_Handler {
 			|| ( ! get_current_user_id() && ! in_array( $order->get_id(), $session_orders, true ) ) ) {
 			return __( 'The subscription does not belong to this checkout session.', 'woocommerce-paypal-pro-payment-gateway' );
 		}
+		// An approval from an already-open popup can arrive after cancellation.
+		// Paid orders remain valid here because the sale webhook can arrive first.
+		if ( $order->has_status( array( 'cancelled', 'failed', 'refunded', 'trash' ) ) ) {
+			return __( 'This order can no longer accept subscription approval. Please contact the store to check your PayPal subscription.', 'woocommerce-paypal-pro-payment-gateway' );
+		}
 		$api = new PayPal_Request_API_Injector();
 		$details = $api->get_paypal_subscription_details( $subscription_id );
 		// A finite subscription can finish its last cycle before onApprove runs.

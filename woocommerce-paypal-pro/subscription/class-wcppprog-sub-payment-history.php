@@ -56,7 +56,11 @@ class WCPPROG_Subscription_Payment_History {
             'amount' => $payment->get_total(),
             'currency' => $payment->get_currency(),
             'refunds' => $refunds,
-            'received' => (float) $payment->get_total() > 0 && ( $date || $payment->is_paid() || $refunds ),
+            // Older review receipts have no paid date. Include the verified
+            // transaction without inventing its payment timestamp.
+            'received' => (float) $payment->get_total() > 0 && ( $date || $payment->is_paid() || $refunds
+                || ( 'yes' === $payment->get_meta( '_wcpprog_payment_review_required', true )
+                    && $payment->get_meta( '_paypal_transaction_id', true ) ) ),
         );
     }
 

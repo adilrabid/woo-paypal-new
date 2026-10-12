@@ -322,6 +322,8 @@ class PayPal_Webhook_Event_Handler {
 				$order->set_currency( $currency );
 				$order->set_total( $amount );
 				$order->set_transaction_id( $transaction_id );
+				$paid_at = ! empty( $r['create_time'] ) ? strtotime( $r['create_time'] ) : false;
+				$order->set_date_paid( false !== $paid_at && $paid_at > 0 ? $paid_at : current_datetime()->getTimestamp() );
 				$order->set_status( 'on-hold' );
 				$order->update_meta_data( '_wcpprog_payment_review_required', 'yes' );
 				$order->update_meta_data( '_wcpprog_expected_recurring_total', $sub_order->get_total() );
@@ -368,6 +370,16 @@ class PayPal_Webhook_Event_Handler {
 
 	/** Use PayPal's current schedule, never an interval inferred from a sale date. */
 	private function update_subscription_billing_schedule( $sub_order, $details ) {
+		// Allocation review must not keep a subscription in trial after PayPal
+		// confirms regular billing has begun. Missing cycle data proves nothing.
+		$regular_started = false;
+		foreach ( $details->billing_info->cycle_executions ?? array() as $cycle ) {
+			if ( 'REGULAR' === ( $cycle->tenure_type ?? '' ) && (int) ( $cycle->cycles_completed ?? 0 ) > 0 ) {
+				$regular_started = true;
+				$sub_order->update_meta_data( '_wcpprog_regular_billing_started', 'yes' );
+				break;
+			}
+		}
 		$status_map = array(
 			'ACTIVE' => \WCPPROG_Subscription_Order_Handler::STATUS_ACTIVE,
 			'SUSPENDED' => \WCPPROG_Subscription_Order_Handler::STATUS_ON_HOLD,
@@ -376,6 +388,8 @@ class PayPal_Webhook_Event_Handler {
 		);
 		$local_status = $status_map[ $details->status ];
 		if ( 'ACTIVE' === $details->status
+			&& ! $regular_started
+			&& 'yes' !== $sub_order->get_meta( '_wcpprog_regular_billing_started', true )
 			&& 'yes' === $sub_order->get_meta( '_wcpprog_has_trial', true )
 			&& 'yes' !== $sub_order->get_meta( '_wcpprog_regular_payment_received', true ) ) {
 			$local_status = \WCPPROG_Subscription_Order_Handler::STATUS_TRIAL;

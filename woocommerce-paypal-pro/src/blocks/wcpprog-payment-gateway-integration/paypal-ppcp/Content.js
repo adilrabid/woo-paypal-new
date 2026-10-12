@@ -112,6 +112,11 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
                             shipping: customer?.shippingAddress
                         })
                     });
+                    if (result?.redirect_to) {
+                        window.location.assign(result.redirect_to);
+                        // Navigation finishes this checkout; do not open another approval.
+                        return new Promise(() => {});
+                    }
                     return result.subscription_id;
                 } catch (error) {
                     showError(error);
