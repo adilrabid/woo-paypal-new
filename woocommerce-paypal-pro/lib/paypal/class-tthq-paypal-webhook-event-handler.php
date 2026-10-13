@@ -139,7 +139,7 @@ class PayPal_Webhook_Event_Handler {
 	}
 
 	/** Return null for unrelated events; retry failures only for a checkout we own. */
-	private function recover_subscription_order( $id ) {
+	private function recover_subscription_order( $id, $mode ) {
 		$parent = $this->get_subscription_checkout_order( $id );
 		if ( ! $parent ) { return null; }
 		try {
@@ -147,6 +147,7 @@ class PayPal_Webhook_Event_Handler {
 				throw new \RuntimeException( 'The subscription checkout order is closed.' );
 			}
 			$api = new PayPal_Request_API_Injector();
+			$api->set_mode_and_api_creds_based_on_mode( $mode );
 			$details = $api->get_paypal_subscription_details( $id );
 			if ( ! $details || ( $details->id ?? '' ) !== $id
 				|| ( $details->plan_id ?? '' ) !== $parent->get_meta( '_wcpprog_paypal_plan_id', true )
@@ -189,13 +190,13 @@ class PayPal_Webhook_Event_Handler {
 		if ( ! $sub_order ) {
 			// Recovery verifies an owned checkout and uses current PayPal state.
 			// This also handles a terminal event arriving before browser approval.
-			if ( ! $this->recover_subscription_order( $id ) ) {
+			if ( ! $this->recover_subscription_order( $id, $mode ) ) {
 				PayPal_Utils::log( 'Webhook: unrelated subscription status ignored.', true );
 			}
 			return;
 		}
 
-		$details = $this->get_current_subscription_details( $id );
+		$details = $this->get_current_subscription_details( $id, $mode );
 		$this->update_subscription_billing_schedule( $sub_order, $details );
 		/* translators: %s: current PayPal subscription status. */
 		$sub_order->add_order_note( sprintf( __( 'PayPal subscription status: %s.', 'woocommerce-paypal-pro-payment-gateway' ), $details->status ) );
@@ -204,8 +205,9 @@ class PayPal_Webhook_Event_Handler {
 	}
 
 	/** Query current state so delayed webhooks cannot undo a newer transition. */
-	private function get_current_subscription_details( $id ) {
+	private function get_current_subscription_details( $id, $mode ) {
 		$api = new PayPal_Request_API_Injector();
+		$api->set_mode_and_api_creds_based_on_mode( $mode );
 		$details = $api->get_paypal_subscription_details( $id );
 		if ( ! $details || ( $details->id ?? '' ) !== $id
 			|| ! in_array( $details->status ?? '', array( 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'EXPIRED' ), true ) ) {
@@ -263,7 +265,7 @@ class PayPal_Webhook_Event_Handler {
 		PayPal_Utils::log( 'Webhook: processing recurring payment ' . $transaction_id . ' for PayPal subscription ' . $paypal_sub_id, true );
 
 		if ( ! $sub_order ) {
-			$sub_order = $this->recover_subscription_order( $paypal_sub_id );
+			$sub_order = $this->recover_subscription_order( $paypal_sub_id, $mode );
 			if ( ! $sub_order ) {
 				PayPal_Utils::log( 'Webhook: unrelated subscription payment ignored.', true );
 				return;
@@ -276,7 +278,7 @@ class PayPal_Webhook_Event_Handler {
 		}
 		// The sale resource has no reliable next billing time. Read the current
 		// subscription before recording the sale so a retry can finish both tasks.
-		$details = $this->get_current_subscription_details( $paypal_sub_id );
+		$details = $this->get_current_subscription_details( $paypal_sub_id, $mode );
 
 		$existing = wc_get_orders( array(
 			'type' => 'shop_order',

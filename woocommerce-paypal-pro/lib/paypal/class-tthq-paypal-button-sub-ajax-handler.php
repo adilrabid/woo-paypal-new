@@ -445,7 +445,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 		$mode = 'yes' === PayPal_PPCP_Config::get_instance()->value( 'sandbox_enabled' ) ? 'sandbox' : 'production';
 		$result = PayPal_Checkout_Attempt::with_subscription_lock( $subscription_id, $mode, function () use ( $data, $txn_data ) {
 			return $this->process_subscription_approval( $data, $txn_data );
-		} );
+		}, true );
 		if ( is_wp_error( $result ) ) { wp_send_json_error( array( 'message' => $result->get_error_message() ) ); }
 		wp_send_json_success( $result );
     }

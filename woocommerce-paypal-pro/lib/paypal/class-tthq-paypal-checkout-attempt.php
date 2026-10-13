@@ -71,9 +71,15 @@ class PayPal_Checkout_Attempt {
 	}
 
 	/** Serialize browser approval/recovery with payment and status webhooks. */
-	public static function with_subscription_lock( $id, $mode, $callback ) {
+	public static function with_subscription_lock( $id, $mode, $callback, $wait_for_webhook = false ) {
 		$key = 'wcpprog_payment_lock_' . md5( $mode . $id );
 		$token = $id ? PayPal_Lock::acquire( $key ) : false;
+		// Browser approval can overlap a successful webhook. Wait briefly for
+		// ownership, never rerun a callback that has already started processing.
+		for ( $retry = 0; $id && ! $token && $wait_for_webhook && $retry < 20; $retry++ ) {
+			usleep( 250000 );
+			$token = PayPal_Lock::acquire( $key );
+		}
 		if ( ! $token ) {
 			return new \WP_Error( 'paypal_subscription_busy', __( 'Your subscription is being processed. Please try again shortly.', 'woocommerce-paypal-pro-payment-gateway' ) );
 		}
@@ -105,8 +111,24 @@ class PayPal_Checkout_Attempt {
 				// A previous request may have saved a candidate before publishing
 				// the replacement link. Reuse it instead of creating another order.
 				$candidates = wc_get_orders( array( 'type' => 'shop_order', 'meta_key' => '_wcpprog_recovery_source_order_id',
-					'meta_value' => $current->get_id(), 'orderby' => 'ID', 'order' => 'ASC', 'limit' => 1 ) );
-				$new = $candidates ? $candidates[0] : $create_order( $current );
+					'meta_value' => $current->get_id(), 'orderby' => 'ID', 'order' => 'ASC', 'limit' => -1,
+					'status' => array_merge( array_keys( wc_get_order_statuses() ), array( 'trash' ) ) ) );
+				$new = false;
+				foreach ( $candidates as $candidate ) {
+					// Inspect every candidate before selecting one: payment activity
+					// on an older candidate must never be hidden by a newer one.
+					if ( 'shop_order' !== $candidate->get_type() || 'paypal_checkout' !== $candidate->get_payment_method()
+						|| (int) $candidate->get_customer_id() !== (int) $current->get_customer_id()
+						|| ! self::is_unpaid_unlinked( $candidate )
+						|| $candidate->get_meta( '_wcpprog_replacement_order_id', true )
+						|| ( $candidate->get_meta( '_wcppprog_paypal_subscription_id', true ) && $id !== $candidate->get_meta( '_wcppprog_paypal_subscription_id', true ) )
+						|| ( $candidate->get_meta( '_wcpprog_checkout_fingerprint', true ) && $fingerprint !== $candidate->get_meta( '_wcpprog_checkout_fingerprint', true ) )
+						|| ! $candidate->has_status( array( 'pending', 'cancelled', 'failed' ) ) ) {
+						throw new \RuntimeException( 'Staged replacement order is not safe to resume or replace.' );
+					}
+					if ( ! $new && self::can_resume_approval( $candidate ) ) { $new = $candidate; }
+				}
+				if ( ! $new ) { $new = $create_order( $current ); }
 				if ( ! $new || is_wp_error( $new ) || $new->get_id() === $current->get_id()
 					|| 'shop_order' !== $new->get_type() || 'paypal_checkout' !== $new->get_payment_method()
 					|| (int) $new->get_customer_id() !== (int) $current->get_customer_id()

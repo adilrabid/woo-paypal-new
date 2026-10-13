@@ -38,7 +38,7 @@ class PayPal_Webhook {
 		$this->sandbox_secret = $settings->value('sandbox_client_secret');
 
 		$sandbox_enabled = $settings->value('sandbox_enabled');
-		$paypal_mode = $sandbox_enabled ? 'sandbox' : 'production';
+		$paypal_mode = 'yes' === $sandbox_enabled ? 'sandbox' : 'production';
 		$paypal_req_api = PayPal_Request_API::get_instance();
 		$paypal_req_api->set_mode_and_api_credentials( $paypal_mode, $this->live_client_id, $this->live_secret, $this->sandbox_client_id, $this->sandbox_secret );            
 

@@ -1,7 +1,12 @@
 <?php
 /** Run: php tests/paypal-subscription-retry-regression.php */
 namespace TTHQ\WC_PP_PRO\Lib\PayPal {
+    function usleep($microseconds) {
+        $GLOBALS['lock_waits'] = ($GLOBALS['lock_waits'] ?? 0) + 1;
+        if (isset($GLOBALS['during_lock_wait'])) { ($GLOBALS['during_lock_wait'])(); }
+    }
     class PayPal_Request_API_Injector {
+        public function set_mode_and_api_creds_based_on_mode($mode) {}
         public function get_paypal_subscription_details($id) {
             if (isset($GLOBALS['during_lookup'])) { ($GLOBALS['during_lookup'])(); }
             return $GLOBALS['remote'];
@@ -11,7 +16,13 @@ namespace TTHQ\WC_PP_PRO\Lib\PayPal {
         public function cancel_paypal_subscription($id) { throw new \RuntimeException('Pending subscriptions must never be cancelled'); }
         public function create_paypal_subscription_for_billing_plan(...$args) { throw new \RuntimeException('Recovery must not create a remote subscription'); }
     }
+    class PayPal_PPCP_Config {
+        public static function get_instance() { return new self(); }
+        public function value($key) { return 'yes'; }
+    }
     class PayPal_Utils {
+        public static function auto_prefix($value) { return $value; }
+        public static function log_array(...$args) {}
         public static function log(...$args) { $GLOBALS['retry_logs'][] = $args[0]; }
     }
 }
@@ -22,6 +33,10 @@ namespace {
         public function get_error_code() { return $this->code; }
         public function get_error_message() { return $this->message; }
     }
+    function check_ajax_referer(...$args) { return true; }
+    function wp_unslash($value) { return $value; }
+    function wp_send_json_error($data) { throw new RuntimeException($data['message']); }
+    function wp_send_json_success($data) { throw new RuntimeException('Unexpected success'); }
     function is_wp_error($value) { return $value instanceof WP_Error; }
     function __($message, $domain) { return $message; }
     function absint($value) { return abs((int) $value); }
@@ -151,6 +166,58 @@ namespace {
     check(!$GLOBALS['locks'] && !wc_get_order(42)->get_meta('_wcpprog_replacement_order_id'), 'Failed publication releases lock and keeps original mapping');
     unset($GLOBALS['before_save']);
     check(Attempt::replace_cancelled_subscription_order($old, 'matching-cart', 'sandbox', $create)->id === 43 && $GLOBALS['created'] === 1, 'Interrupted recovery reuses staged order');
+    // A staged replacement cancelled after an interrupted publish must not trap retries.
+    foreach (array('cancelled', 'failed') as $status) {
+        $old = reset_attempt();
+        $candidate = $create($old); $candidate->status = $status; $candidate->save();
+        $replacement = Attempt::replace_cancelled_subscription_order($old, 'matching-cart', 'sandbox', $create);
+        check(!is_wp_error($replacement) && $replacement->id === 44, 'Replace abandoned staged order: ' . $status);
+        check(wc_get_order(43)->status === $status, 'Keep abandoned candidate closed');
+        check($replacement->get_meta('_wcppprog_paypal_subscription_id') === 'I-TEST', 'Keep same remote subscription');
+    }
+    // Reuse a later pending candidate, but inspect all candidates for unsafe activity.
+    $old = reset_attempt();
+    $abandoned = $create($old); $abandoned->status = 'cancelled'; $abandoned->save();
+    $pending = $create($old);
+    check(Attempt::replace_cancelled_subscription_order($old, 'matching-cart', 'sandbox', $create)->id === 44 && $GLOBALS['created'] === 2, 'Reuse later pending candidate');
+    foreach (array('paid', 'transaction', '_paypal_transaction_id', '_wcpprog_subscription_order_id', '_wcpprog_replacement_order_id', 'refunded', 'on-hold', 'trash', 'foreign_customer', 'foreign_remote', 'foreign_cart') as $unsafe) {
+        $old = reset_attempt();
+        $pending = $create($old);
+        $candidate = $create($old); $candidate->status = 'cancelled';
+        if (in_array($unsafe, array('paid', 'transaction'), true)) { $candidate->$unsafe = 'recorded'; }
+        elseif (in_array($unsafe, array('refunded', 'on-hold', 'trash'), true)) { $candidate->status = $unsafe; }
+        elseif ($unsafe === 'foreign_customer') { $candidate->customer = 99; }
+        elseif ($unsafe === 'foreign_remote') { $candidate->meta['_wcppprog_paypal_subscription_id'] = 'I-OTHER'; }
+        elseif ($unsafe === 'foreign_cart') { $candidate->meta['_wcpprog_checkout_fingerprint'] = 'other'; }
+        else { $candidate->meta[$unsafe] = 99; }
+        $candidate->save();
+        check(is_wp_error(Attempt::replace_cancelled_subscription_order($old, 'matching-cart', 'sandbox', $create)), 'Unsafe candidate blocks even when another is pending: ' . $unsafe);
+        check($GLOBALS['created'] === 2 && !wc_get_order(42)->get_meta('_wcpprog_replacement_order_id'), 'Unsafe candidate creates no order or mapping');
+    }
+    // Approval waits for ownership; timeout must not execute the callback or release another owner's lock.
+    $old = reset_attempt(); $key = 'wcpprog_payment_lock_' . md5('sandboxI-TEST');
+    $GLOBALS['locks'][$key] = time() . ':webhook'; $GLOBALS['lock_waits'] = 0; $calls = 0;
+    $GLOBALS['during_lock_wait'] = static function() use ($key) {
+        if ($GLOBALS['lock_waits'] === 2) { unset($GLOBALS['locks'][$key]); }
+    };
+    $result = Attempt::with_subscription_lock('I-TEST', 'sandbox', static function() use (&$calls, $key) {
+        check(isset($GLOBALS['locks'][$key]), 'Callback owns the lock'); ++$calls; return 'redirect';
+    }, true);
+    check($result === 'redirect' && $calls === 1 && $GLOBALS['lock_waits'] === 2 && !$GLOBALS['locks'], 'Approval resumes once webhook releases lock');
+    unset($GLOBALS['during_lock_wait']);
+    $GLOBALS['locks'][$key] = time() . ':webhook'; $owner = $GLOBALS['locks'][$key]; $GLOBALS['lock_waits'] = 0;
+    $result = Attempt::with_subscription_lock('I-TEST', 'sandbox', static function() use (&$calls) { ++$calls; }, true);
+    check(is_wp_error($result) && $GLOBALS['lock_waits'] === 20 && $calls === 1, 'Approval wait is bounded without processing');
+    check($GLOBALS['locks'][$key] === $owner, 'Timeout preserves webhook ownership');
+    // The actual AJAX entry point opts into the bounded wait as well.
+    $GLOBALS['lock_waits'] = 0;
+    $_POST = array('data' => json_encode(array('subscriptionID' => 'I-TEST')), 'txn_data' => json_encode(array('status' => 'ACTIVE')));
+    try { $handler->sub_onapprove_process_subscription(); throw new RuntimeException('Expected busy response'); }
+    catch (RuntimeException $error) { check($error->getMessage() === 'Your subscription is being processed. Please try again shortly.', 'Endpoint retains recoverable busy notice'); }
+    check($GLOBALS['lock_waits'] === 20 && $GLOBALS['locks'][$key] === $owner, 'Approval endpoint waits without releasing webhook lock');
+    unset($GLOBALS['locks'][$key]); $GLOBALS['lock_waits'] = 0;
+    $result = Attempt::with_subscription_lock('I-TEST', 'sandbox', static function() use (&$calls) { ++$calls; return new WP_Error('validation', 'Invalid'); }, true);
+    check(is_wp_error($result) && $calls === 2 && !$GLOBALS['lock_waits'] && !$GLOBALS['locks'], 'Never retry a callback failure');
     // Remote approval/payment during creation must prevent publishing the replacement.
     $old = reset_attempt();
     $race = static function($source) use ($create) { $new = $create($source); $GLOBALS['remote']->status = 'ACTIVE'; return $new; };
@@ -182,7 +249,7 @@ namespace {
     check(is_wp_error(Attempt::replace_cancelled_subscription_order($old, 'matching-cart', 'sandbox', static function() { return false; })), 'Failed order creation keeps original approval recoverable');
     $GLOBALS['remote']->status = 'ACTIVE';
     $recover = new ReflectionMethod($webhook, 'recover_subscription_order');
-    try { $recover->invoke($webhook, 'I-TEST'); throw new RuntimeException('Closed order was accepted by webhook'); }
+    try { $recover->invoke($webhook, 'I-TEST', 'sandbox'); throw new RuntimeException('Closed order was accepted by webhook'); }
     catch (RuntimeException $error) { check($error->getMessage() === 'HTTP 503', 'Webhook must not attach an active subscription to cancelled parent'); }
     $old->meta['_wcpprog_replacement_order_id'] = 999; $old->save();
     check(Attempt::get_order('subscription', 'matching-cart', true)->id === 42 && is_wp_error(Attempt::get_approval_id($old, 'subscription')), 'Broken replacement must block instead of creating a remote subscription');

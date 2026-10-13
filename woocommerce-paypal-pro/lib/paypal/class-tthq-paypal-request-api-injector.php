@@ -21,7 +21,7 @@ class PayPal_Request_API_Injector {
             $this->sandbox_client_id = $settings->value('sandbox_client_id');
             $this->sandbox_secret = $settings->value('sandbox_client_secret');
             $sandbox_enabled = $settings->value('sandbox_enabled');
-            $this->mode = $sandbox_enabled ? 'sandbox' : 'production';
+            $this->mode = 'yes' === $sandbox_enabled ? 'sandbox' : 'production';
             $paypal_req_api = PayPal_Request_API::get_instance();
             $paypal_req_api->set_mode_and_api_credentials( $this->mode, $this->live_client_id, $this->live_secret, $this->sandbox_client_id, $this->sandbox_secret );            
             $this->paypal_req_api = $paypal_req_api;

@@ -4,6 +4,7 @@ namespace TTHQ\WC_PP_PRO\Lib\PayPal {
     class PayPal_Utils { public static function log(...$args) {} }
     class PayPal_Utility_IPN_Related { public static function copy_subscription_line_item($item) { return clone $item; } }
     class PayPal_Request_API_Injector {
+        public function set_mode_and_api_creds_based_on_mode($mode) {}
         public static $details;
         public function get_paypal_subscription_details($id) { return self::$details; }
     }

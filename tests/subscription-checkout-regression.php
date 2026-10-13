@@ -7,6 +7,7 @@ namespace TTHQ\WC_PP_PRO\Lib\PayPal {
         if (isset($GLOBALS['during_approval_wait'])) { ($GLOBALS['during_approval_wait'])(); }
     }
     class PayPal_Request_API_Injector {
+        public function set_mode_and_api_creds_based_on_mode($mode) {}
         public static $details;
         public function get_paypal_subscription_details($id) { return self::$details; }
     }
@@ -299,7 +300,7 @@ namespace {
     $recover = new \ReflectionMethod($webhook, 'recover_subscription_order');
     $recover->setAccessible(true);
     unset($GLOBALS['approval_order']);
-    check($recover->invoke($webhook, 'FOREIGN-ID') === null, 'Ignore unrelated subscriptions');
+    check($recover->invoke($webhook, 'FOREIGN-ID', 'sandbox') === null, 'Ignore unrelated subscriptions');
     $sale = new \ReflectionMethod($webhook, 'process_subscription_sale');
     $sale->setAccessible(true);
     check($sale->invoke($webhook, 'sale_completed', array('resource' => array('billing_agreement_id' => 'FOREIGN-ID', 'id' => 'SALE-X')), 'sandbox') === null, 'Unrelated payment is acknowledged without recovery');
@@ -319,7 +320,7 @@ namespace {
     unset($GLOBALS['locks'][$own_lock]);
     $GLOBALS['approval_order'] = $parent;
     \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$details = (object) array('id' => 'I-TEST', 'plan_id' => 'P-TEST', 'status' => 'ACTIVE');
-    check($recover->invoke($webhook, 'I-TEST') instanceof WCPPROG_WC_Subscription_Order, 'Recover approved checkout without browser callback');
+    check($recover->invoke($webhook, 'I-TEST', 'sandbox') instanceof WCPPROG_WC_Subscription_Order, 'Recover approved checkout without browser callback');
     $activate = new \ReflectionMethod($webhook, 'handle_subscription_status_update');
     $activate->setAccessible(true);
     \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$details = (object) array('id' => 'I-TEST', 'plan_id' => 'P-TEST', 'status' => 'CANCELLED');
@@ -328,7 +329,7 @@ namespace {
     foreach (array(false, (object) array('id' => 'I-TEST', 'plan_id' => 'P-WRONG', 'status' => 'ACTIVE'), (object) array('id' => 'I-TEST', 'plan_id' => 'P-TEST', 'status' => 'APPROVAL_PENDING')) as $details) {
         \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$details = $details;
         $status = null;
-        try { $recover->invoke($webhook, 'I-TEST'); } catch (\RuntimeException $error) { $status = $error->getMessage(); }
+        try { $recover->invoke($webhook, 'I-TEST', 'sandbox'); } catch (\RuntimeException $error) { $status = $error->getMessage(); }
         check($status === '503', 'Our unverified checkout requests retry');
     }
     check(empty($GLOBALS['locks']), 'Creation locks released');
