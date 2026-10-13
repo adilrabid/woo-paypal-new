@@ -97,6 +97,8 @@ namespace {
         public function save() {}
     }
     require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-checkout-guard.php';
+    require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-lock.php';
+    require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-checkout-attempt.php';
     require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-utils-ipn-related.php';
     require WC_PP_PRO_ADDON_PATH . '/lib/paypal/class-tthq-paypal-button-sub-ajax-handler.php';
     require WC_PP_PRO_ADDON_PATH . '/woo-paypal-pro-gateway-paypal-checkout.php';
@@ -111,6 +113,7 @@ namespace {
     }
     $parent = new class {
         public function get_id() { return 10; }
+        public function has_status($statuses) { return in_array('pending', (array) $statuses, true); }
         public function get_meta($key, $single) {
             if ($key === '_wcppprog_recurring_breakdown') {
                 return array('props' => array('currency' => 'EUR', 'total' => 28, 'cart_tax' => '2.00', 'shipping_tax' => '1.00'),
@@ -215,7 +218,8 @@ namespace {
     $GLOBALS['approval_order'] = new class {
         public function get_id() { return 10; }
         public function get_customer_id() { return 1; }
-        public function get_meta($key, $single) { return $key === '_wcpprog_paypal_plan_id' ? 'P-1' : 'no'; }
+        public function has_status($statuses) { return in_array('pending', (array) $statuses, true); }
+        public function get_meta($key, $single) { return array('_wcpprog_paypal_plan_id' => 'P-1', '_wcpprog_has_trial' => 'no')[$key] ?? ''; }
     };
     $response = (object) array('id' => 'I-1', 'plan_id' => 'P-1', 'status' => 'EXPIRED', 'billing_info' => (object) array('cycle_executions' => array((object) array('tenure_type' => 'REGULAR', 'total_cycles' => 1, 'cycles_completed' => 1, 'cycles_remaining' => 0))));
     $validate_approval = function($details) use ($handler) {

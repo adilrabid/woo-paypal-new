@@ -128,7 +128,11 @@ class PayPal_Webhook_Event_Handler {
 			if ( 'paypal_checkout' === $order->get_payment_method()
 				&& $order->get_meta( '_wcpprog_paypal_plan_id', true )
 				&& in_array( $order->get_meta( '_wcpprog_has_trial', true ), array( 'yes', 'no' ), true ) ) {
-				return $order;
+				$checkout = PayPal_Checkout_Attempt::resolve_subscription_order( $order );
+				if ( ! $checkout ) {
+					wp_die( 'Subscription replacement order could not be verified. Retry later.', '', array( 'response' => 503 ) );
+				}
+				return $checkout;
 			}
 		}
 		return null;
@@ -139,6 +143,9 @@ class PayPal_Webhook_Event_Handler {
 		$parent = $this->get_subscription_checkout_order( $id );
 		if ( ! $parent ) { return null; }
 		try {
+			if ( $parent->has_status( array( 'cancelled', 'failed', 'refunded', 'trash' ) ) ) {
+				throw new \RuntimeException( 'The subscription checkout order is closed.' );
+			}
 			$api = new PayPal_Request_API_Injector();
 			$details = $api->get_paypal_subscription_details( $id );
 			if ( ! $details || ( $details->id ?? '' ) !== $id

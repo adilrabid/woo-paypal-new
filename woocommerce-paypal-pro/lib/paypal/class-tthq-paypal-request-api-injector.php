@@ -305,11 +305,26 @@ class PayPal_Request_API_Injector {
             //Do the API call.
             $response = $this->paypal_req_api->post($endpoint, $params, $additional_args);
 
-            if(isset($response['response']['code']) && $response['response']['code'] == 204){
+            if( ! is_wp_error( $response ) && is_array( $response ) && wp_remote_retrieve_response_code( $response ) == 204 ){
                 //The subscription was successfully cancelled.
                 return true;
             } else {
                 //Failed to cancel the subscription.
+                // Raw responses bypass the request class's usual error logging.
+                // Keep only diagnostic codes, not the response/customer payload.
+                $body = is_array( $response ) ? json_decode( wp_remote_retrieve_body( $response ), true ) : array();
+                $issues = array();
+                foreach ( $body['details'] ?? array() as $detail ) {
+                    if ( ! empty( $detail['issue'] ) && is_string( $detail['issue'] ) ) {
+                        $issues[] = sanitize_key( $detail['issue'] );
+                    }
+                }
+                PayPal_Utils::log( 'Subscription cancellation API failure: ' . wp_json_encode( array(
+                    'http_code' => is_array( $response ) ? (int) wp_remote_retrieve_response_code( $response ) : 0,
+                    'error_name' => isset( $body['name'] ) && is_string( $body['name'] ) ? sanitize_key( $body['name'] ) : '',
+                    'issues' => $issues,
+                    'transport_error' => is_wp_error( $response ) ? sanitize_key( $response->get_error_code() ) : '',
+                ) ), false );
                 return false;
             }
         }
