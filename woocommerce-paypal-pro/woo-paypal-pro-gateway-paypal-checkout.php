@@ -340,19 +340,21 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
 		$type      = $this->get_field_type( $field );
 		$field_key = $this->get_field_key( $key );
 		$post_data = empty( $post_data ) ? $_POST : $post_data; // WPCS: CSRF ok, input var ok.
-		$value     = isset( $post_data[ $field_key ] ) ? $post_data[ $field_key ] : $this->get_option($key);
 
-        $current_subtab = isset($_GET['subtab']) ? $_GET['subtab'] : 'general';
+        $current_subtab = isset($_GET['subtab']) ? sanitize_key($_GET['subtab']) : 'general';
 
-        /**
-         * Unchecked checkbox doesn't appear on the post request.
-         * Check if the checkbox belongs to current tab but not set (meaning unchecked)
-         */
-        if ($type == 'checkbox' && !isset( $post_data[$field_key] )) {
-            if (isset($this->form_fields[$key]) && $this->form_fields[$key]['subtab'] == $current_subtab ) {
-                return '';
+        if (!isset($post_data[$field_key])) {
+            // An unchecked checkbox on the submitted tab is omitted from POST.
+            if ($type == 'checkbox' && isset($field['subtab']) && $field['subtab'] == $current_subtab) {
+                return 'no';
             }
+
+            // Stored values are already validated. In particular, passing a stored
+            // 'no' to the checkbox validator would turn it into 'yes'.
+            return $this->get_option($key);
         }
+
+        $value = $post_data[$field_key];
 
 		if ( isset( $field['sanitize_callback'] ) && is_callable( $field['sanitize_callback'] ) ) {
 			return call_user_func( $field['sanitize_callback'], $value );
