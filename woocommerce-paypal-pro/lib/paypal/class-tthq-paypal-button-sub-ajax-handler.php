@@ -111,13 +111,37 @@ class PayPal_Button_Sub_Ajax_Handler {
         $plan_id = isset($plan['plan_id']) ? sanitize_text_field($plan['plan_id']) : '';
 		$fingerprint = PayPal_Checkout_Attempt::fingerprint( $wc_paypal_ppcp, array( $plan_id, $subscription_data, $this->checkout_customer_data, $this->recurring_breakdown ) );
 		$previous_order = PayPal_Checkout_Attempt::get_order( 'subscription', $fingerprint, true );
+		PayPal_Utils::log( 'Subscription retry: matching_previous_order=' . ( $previous_order ? $previous_order->get_id() : 'none' ) );
 		if ( $previous_order ) {
 			if ( $previous_order->get_meta( '_wcpprog_subscription_order_id', true ) ) {
+				PayPal_Utils::log( 'Subscription retry: redirecting_to_linked_order=' . $previous_order->get_id() );
 				WC()->cart->empty_cart();
 				WC()->session->set( 'wcpprog_checkout_attempt_subscription', null );
 				wp_send_json_success( array( 'redirect_to' => $previous_order->get_checkout_order_received_url() ) );
 			}
 			$approval_id = PayPal_Checkout_Attempt::get_approval_id( $previous_order, 'subscription' );
+			if ( is_wp_error( $approval_id ) && 'paypal_retry_replace_order' === $approval_id->get_error_code() ) {
+				$replacement = PayPal_Checkout_Attempt::replace_cancelled_subscription_order(
+					$previous_order, $fingerprint, 'yes' === $wc_paypal_ppcp->get_option( 'sandbox' ) ? 'sandbox' : 'production',
+					function ( $source ) use ( $fingerprint ) { return $this->create_wc_order_from_cart( $fingerprint, $source ); }
+				);
+				if ( is_wp_error( $replacement ) ) {
+					wp_send_json_error( array( 'message' => $replacement->get_error_message() ) );
+				}
+				$previous_order = $replacement;
+				PayPal_Checkout_Attempt::remember( $previous_order, 'subscription', $fingerprint );
+				WC()->session->set( 'wcpprog_subscription_approval_order', $previous_order->get_id() );
+				if ( $previous_order->get_meta( '_wcpprog_subscription_order_id', true ) ) {
+					WC()->cart->empty_cart();
+					WC()->session->set( 'wcpprog_checkout_attempt_subscription', null );
+					wp_send_json_success( array( 'redirect_to' => $previous_order->get_checkout_order_received_url() ) );
+				}
+				$approval_id = PayPal_Checkout_Attempt::get_approval_id( $previous_order, 'subscription' );
+				// Never fall through to creating another remote subscription after transfer.
+				if ( ! $approval_id ) {
+					wp_send_json_error( array( 'message' => __( 'Your PayPal approval has changed. Please refresh checkout and try again.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+				}
+			}
 			if ( is_wp_error( $approval_id ) ) {
 				wp_send_json_error( array( 'message' => $approval_id->get_error_message() ) );
 			}
@@ -136,6 +160,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 		$additional_args = array();
 		$additional_args['return_raw_response'] = true;
 
+		PayPal_Utils::log( 'Subscription retry: requesting_new_paypal_subscription' );
 		$response = $api_injector->create_paypal_subscription_for_billing_plan( $plan_id, $subscription_data, $additional_args );
 
 		if ( is_wp_error( $response ) ) {
@@ -210,6 +235,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 
 	    $wc_order->save();
 		PayPal_Checkout_Attempt::remember( $wc_order, 'subscription', $fingerprint );
+		PayPal_Utils::log( 'Subscription retry: new_paypal_subscription_saved_on_order=' . $wc_order->get_id() );
 
 	    //If everything is processed successfully, send the success response.
 		wp_send_json_success( array(
@@ -352,7 +378,11 @@ class PayPal_Button_Sub_Ajax_Handler {
 	/**
 	 * Create WooCommerce order from current cart
 	 */
-	private function create_wc_order_from_cart( $fingerprint ) {
+	private function create_wc_order_from_cart( $fingerprint, $source_order = null ) {
+		$mark_recovery = static function ( $order ) use ( $source_order ) {
+			$order->update_meta_data( '_wcpprog_recovery_source_order_id', $source_order->get_id() );
+		};
+		if ( $source_order ) { add_action( 'woocommerce_checkout_create_order', $mark_recovery ); }
 		try {
 			// Get posted data
 			$data = $this->checkout_customer_data;
@@ -379,6 +409,8 @@ class PayPal_Button_Sub_Ajax_Handler {
 			return $order;
 		} catch (\Exception $e) {
 			return null;
+		} finally {
+			if ( $source_order ) { remove_action( 'woocommerce_checkout_create_order', $mark_recovery ); }
 		}
 	}
 
@@ -409,18 +441,24 @@ class PayPal_Button_Sub_Ajax_Handler {
 			);
 		}
 
+		$subscription_id = sanitize_text_field( $data['subscriptionID'] ?? '' );
+		$mode = 'yes' === PayPal_PPCP_Config::get_instance()->value( 'sandbox_enabled' ) ? 'sandbox' : 'production';
+		$result = PayPal_Checkout_Attempt::with_subscription_lock( $subscription_id, $mode, function () use ( $data, $txn_data ) {
+			return $this->process_subscription_approval( $data, $txn_data );
+		}, true );
+		if ( is_wp_error( $result ) ) { wp_send_json_error( array( 'message' => $result->get_error_message() ) ); }
+		wp_send_json_success( $result );
+    }
+
+	private function process_subscription_approval( $data, $txn_data ) {
 		//Create the IPN data array from the transaction data.
 		//Need to include the following values in the $data array.
 //		$data['custom_field'] = get_transient( $unique_key );//We saved the custom field data in the transient using the unique key. // TODO: Remvoe this
 
 		//Validate the subscription txn data before using it.
 		$validation_response = $this->validate_subscription_checkout_txn_data( $data, $txn_data ); // TODO: need to uncomment
-		if( $validation_response !== true ){
-			wp_send_json_error(
-				array(
-					'message'  => $validation_response,
-				)
-			);
+		if ( $validation_response !== true ) {
+			return new \WP_Error( 'paypal_approval_invalid', $validation_response );
 		}
 
 		//Process the IPN data array
@@ -429,7 +467,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 
 	    $wc_order = PayPal_Utility_IPN_Related::complete_post_subscription_payment_processing( $data, $txn_data, $this->ipn_data );
 	    if (is_wp_error($wc_order)) {
-		    wp_send_json_error(array('message' => $wc_order->get_error_message()));
+		    return $wc_order;
 	    }
 
 		// Trigger the IPN processed action hook (so other plugins can can listen for this event).
@@ -440,11 +478,11 @@ class PayPal_Button_Sub_Ajax_Handler {
 		$redirect_url = $wc_order->get_checkout_order_received_url();;
 
 		//If everything is processed successfully, send the success response.
-		wp_send_json_success( array(
+		return array(
 			'message' => 'Subscription approved successfully.',
 			// 'subscription_id' => isset( $this->ipn_data['subscr_id'] ) ? $this->ipn_data['subscr_id'] : '',
 			'redirect_to' => $redirect_url,
-		) );
+		);
     }
 
 	public function create_ipn_data_array_from_create_subscription_txn_data( $data, $txn_data ) {
@@ -592,11 +630,20 @@ class PayPal_Button_Sub_Ajax_Handler {
 	public function validate_subscription_checkout_txn_data( $data, &$txn_data ) {
 		$subscription_id = isset( $data['subscriptionID'] ) ? sanitize_text_field( $data['subscriptionID'] ) : '';
 		$orders = $subscription_id ? wc_get_orders( array( 'type' => 'shop_order', 'meta_key' => '_wcppprog_paypal_subscription_id', 'meta_value' => $subscription_id, 'orderby' => 'ID', 'order' => 'ASC', 'limit' => 1 ) ) : array();
-		$order = $orders ? $orders[0] : false;
+		$order = $orders ? PayPal_Checkout_Attempt::resolve_subscription_order( $orders[0] ) : false;
 		$session_orders = array_map( 'absint', array( WC()->session->get( 'wcpprog_subscription_approval_order' ), WC()->session->get( 'wcpprog_subscription_checkout_order' ), WC()->session->get( 'order_awaiting_payment' ) ) );
+		foreach ( $session_orders as $session_id ) {
+			$session_order = $session_id ? PayPal_Checkout_Attempt::resolve_subscription_order( wc_get_order( $session_id ) ) : false;
+			if ( $session_order ) { $session_orders[] = $session_order->get_id(); }
+		}
 		if ( ! $order || (int) $order->get_customer_id() !== get_current_user_id()
 			|| ( ! get_current_user_id() && ! in_array( $order->get_id(), $session_orders, true ) ) ) {
 			return __( 'The subscription does not belong to this checkout session.', 'woocommerce-paypal-pro-payment-gateway' );
+		}
+		// An approval from an already-open popup can arrive after cancellation.
+		// Paid orders remain valid here because the sale webhook can arrive first.
+		if ( $order->has_status( array( 'cancelled', 'failed', 'refunded', 'trash' ) ) ) {
+			return __( 'This order can no longer accept subscription approval. Please contact the store to check your PayPal subscription.', 'woocommerce-paypal-pro-payment-gateway' );
 		}
 		$api = new PayPal_Request_API_Injector();
 		$details = $api->get_paypal_subscription_details( $subscription_id );

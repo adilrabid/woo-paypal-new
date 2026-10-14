@@ -215,7 +215,7 @@ class PayPal_Utility_IPN_Related {
 			'limit' => 1,
 		));
 
-		$wc_order = ! empty($orders) ? $orders[0] : false;
+		$wc_order = ! empty($orders) ? PayPal_Checkout_Attempt::resolve_subscription_order( $orders[0] ) : false;
 
 		if ( empty($wc_order) ) {
 			return new \WP_Error('order_not_found', 'WooCommerce order not found');

@@ -10,6 +10,8 @@ function wc_get_orders($args) {
 }
 require dirname(__DIR__) . '/woocommerce-paypal-pro/subscription/class-wcppprog-sub-payment-history.php';
 $payment = new class {
+    public $meta = array();
+    public function get_meta($key, $single) { return $this->meta[$key] ?? ''; }
     public function get_id() { return 10; }
     public function get_date_paid() { return null; }
     public function get_date_created() { return new DateTime('2026-10-05'); }
@@ -41,5 +43,17 @@ foreach (array('REFUND-1', '') as $paypal_id) {
 $GLOBALS['refunds'] = array();
 if (WCPPROG_Subscription_Payment_History::snapshot($payment, $subscription)['refunds']) {
     throw new RuntimeException('Deleted refunds must disappear');
+}
+if (WCPPROG_Subscription_Payment_History::snapshot($payment, $subscription)['received']) {
+    throw new RuntimeException('Unpaid orders must remain excluded');
+}
+$payment->meta['_wcpprog_payment_review_required'] = 'yes';
+if (WCPPROG_Subscription_Payment_History::snapshot($payment, $subscription)['received']) {
+    throw new RuntimeException('Review marker alone is not proof of payment');
+}
+$payment->meta['_paypal_transaction_id'] = 'SALE-1';
+$snapshot = WCPPROG_Subscription_Payment_History::snapshot($payment, $subscription);
+if (!$snapshot['received'] || $snapshot['date'] !== 0) {
+    throw new RuntimeException('Legacy review receipts must be visible without fabricating their payment date');
 }
 echo "Subscription refund history regression checks passed.\n";

@@ -4,12 +4,14 @@ namespace TTHQ\WC_PP_PRO\Lib\PayPal {
     class PayPal_Utils { public static function log(...$args) {} }
     class PayPal_Utility_IPN_Related { public static function copy_subscription_line_item($item) { return clone $item; } }
     class PayPal_Request_API_Injector {
+        public function set_mode_and_api_creds_based_on_mode($mode) {}
         public static $details;
         public function get_paypal_subscription_details($id) { return self::$details; }
     }
 }
 namespace {
     require __DIR__ . '/paypal-lock-fixture.php';
+    require dirname(__DIR__) . '/woocommerce-paypal-pro/lib/paypal/class-tthq-paypal-lock.php';
     define('ABSPATH', __DIR__);
     function wc_get_order_statuses() { return array(); }
     function wc_get_orders($args) {
@@ -19,6 +21,7 @@ namespace {
     function wc_get_order($id) { return $GLOBALS['test_parent'] ?? false; }
     function wc_format_decimal($value, $decimals) { return number_format((float) $value, $decimals, '.', ''); }
     function wc_get_price_decimals() { return 2; }
+    function current_datetime() { return new DateTimeImmutable('2026-12-02 18:30:00', new DateTimeZone('Asia/Dhaka')); }
     function add_option($key, $value, ...$args) { if (isset($GLOBALS['locks'][$key])) { return false; } $GLOBALS['locks'][$key] = $value; return true; }
     function delete_option($key) { unset($GLOBALS['locks'][$key]); }
 
@@ -138,12 +141,14 @@ namespace {
         $GLOBALS['payments'] = array();
         $order->meta['_wcpprog_regular_payment_received'] = 'no';
         $event['resource']['amount'] = array('total' => $amount, 'currency' => $currency);
+        $event['resource']['create_time'] = '2026-12-01T14:30:00+02:00';
         $sale->invoke($handler, 'sale_completed', $event, 'sandbox');
         $payment = $GLOBALS['payments'][0];
         if ((float) $payment->props['total'] !== (float) $amount || $payment->props['currency'] !== $currency) { throw new RuntimeException('Recorded payment must match actual receipt'); }
         if ($payment->completed === $review) { throw new RuntimeException('Only matching renewals can be auto-completed'); }
         if ($order->next_date !== '2027-01-01 00:00:00') { throw new RuntimeException('Discrepancies must still synchronize billing schedule'); }
         if ($review) {
+            if ($payment->props['date_paid'] !== strtotime('2026-12-01T12:30:00Z')) { throw new RuntimeException('Review receipt must record PayPal payment time'); }
             if ($payment->props['status'] !== 'on-hold' || $payment->get_meta('_wcpprog_payment_review_required', true) !== 'yes'
                 || $payment->get_meta('_wcpprog_expected_recurring_total', true) !== 20 || count($payment->notes) !== 1
                 || !($payment->items[0] instanceof WC_Order_Item_Fee) || $payment->items[0]->props['tax_status'] !== 'none') {
@@ -155,6 +160,27 @@ namespace {
         if ($GLOBALS['created_count'] !== $count || count($payment->notes) !== 1) { throw new RuntimeException('Webhook retry must not duplicate order or note'); }
         if ($order->meta['_wcpprog_regular_payment_received'] !== ($review ? 'no' : 'yes')) { throw new RuntimeException('Unallocated payment must not end trial on creation or replay'); }
     }
+    // A review payment does end trial when PayPal confirms a regular cycle.
+    $GLOBALS['payments'] = array();
+    $order->meta['_wcpprog_regular_payment_received'] = 'no';
+    $details = \TTHQ\WC_PP_PRO\Lib\PayPal\PayPal_Request_API_Injector::$details;
+    $details->billing_info->cycle_executions = array((object) array('tenure_type' => 'REGULAR', 'cycles_completed' => 1));
+    $sale->invoke($handler, 'sale_completed', $event, 'sandbox');
+    if ($order->status !== 'wcpprog-active' || $GLOBALS['payments'][0]->completed) { throw new RuntimeException('Verified regular billing must end trial without fulfilling review order'); }
+    $count = $GLOBALS['created_count'];
+    $sale->invoke($handler, 'sale_completed', $event, 'sandbox');
+    if ($GLOBALS['created_count'] !== $count || $order->status !== 'wcpprog-active') { throw new RuntimeException('Review replay must preserve regular billing and avoid duplicate receipts'); }
+    unset($details->billing_info->cycle_executions);
+    $update->invoke($handler, $order, $details);
+    if ($order->status !== 'wcpprog-active') { throw new RuntimeException('Missing later cycle data must not restore trial'); }
+    unset($order->meta['_wcpprog_regular_billing_started']);
+    $details->billing_info->cycle_executions = array((object) array('tenure_type' => 'TRIAL', 'cycles_completed' => 1), (object) array('tenure_type' => 'REGULAR', 'cycles_completed' => 0));
+    $update->invoke($handler, $order, $details);
+    if ($order->status !== 'wcpprog-trial') { throw new RuntimeException('Trial cycle completion alone must not prove regular billing'); }
+    $GLOBALS['payments'] = array();
+    $event['resource']['create_time'] = 'invalid';
+    $sale->invoke($handler, 'sale_completed', $event, 'sandbox');
+    if ($GLOBALS['payments'][0]->props['date_paid'] !== strtotime('2026-12-02T12:30:00Z')) { throw new RuntimeException('Fallback must use WordPress current time without adding the site timezone offset'); }
     $GLOBALS['payments'] = array();
     $GLOBALS['test_parent'] = new class {
         public function get_meta(...$args) { return 'yes'; }

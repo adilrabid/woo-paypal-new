@@ -1,6 +1,7 @@
 <?php
 /** Run with: php tests/checkout-attempt-regression.php */
 namespace TTHQ\WC_PP_PRO\Lib\PayPal {
+    class PayPal_Utils { public static function log(...$args) {} }
     class PayPal_Request_API_Injector {
         public static $response;
         public static $error = array();
@@ -27,6 +28,7 @@ namespace {
         public $method = 'paypal_checkout';
         public function __construct(public $id) {}
         public function get_id() { return $this->id; }
+        public function get_status() { return $this->status; }
         public function get_type() { return 'shop_order'; }
         public function get_payment_method() { return $this->method; }
         public function get_customer_id() { return $this->customer; }
