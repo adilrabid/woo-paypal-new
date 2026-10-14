@@ -429,7 +429,8 @@ class PayPal_Button_Sub_Ajax_Handler {
 				'message'  => __( 'Empty data received.', 'woocommerce-paypal-pro-payment-gateway' ),
 			));
 		}
-		PayPal_Utils::log_array( $data, true );//Debugging only
+		// Approval data can include a facilitator access token; never log the raw payload.
+		// PayPal_Utils::log_array( $data, true );//Debugging only
 
 		//Get the transaction data from the request.
 		$txn_data = isset( $_POST['txn_data'] ) ? json_decode( wp_unslash( $_POST['txn_data'] ), true ) : array();
@@ -640,11 +641,6 @@ class PayPal_Button_Sub_Ajax_Handler {
 			|| ( ! get_current_user_id() && ! in_array( $order->get_id(), $session_orders, true ) ) ) {
 			return __( 'The subscription does not belong to this checkout session.', 'woocommerce-paypal-pro-payment-gateway' );
 		}
-		// An approval from an already-open popup can arrive after cancellation.
-		// Paid orders remain valid here because the sale webhook can arrive first.
-		if ( $order->has_status( array( 'cancelled', 'failed', 'refunded', 'trash' ) ) ) {
-			return __( 'This order can no longer accept subscription approval. Please contact the store to check your PayPal subscription.', 'woocommerce-paypal-pro-payment-gateway' );
-		}
 		$api = new PayPal_Request_API_Injector();
 		$details = $api->get_paypal_subscription_details( $subscription_id );
 		// A finite subscription can finish its last cycle before onApprove runs.
@@ -685,6 +681,8 @@ class PayPal_Button_Sub_Ajax_Handler {
 				return __( 'PayPal reports a trial that is not configured for this order.', 'woocommerce-paypal-pro-payment-gateway' );
 			}
 		}
+		$order = PayPal_Checkout_Attempt::recover_approved_closed_order( $order, $details );
+		if ( is_wp_error( $order ) ) { return $order->get_error_message(); }
 		// Approval does not prove payment. The verified sale webhook validates
 		// the actual amount/currency and records the transaction on the order.
 		$txn_data = json_decode( wp_json_encode( $details ), true );

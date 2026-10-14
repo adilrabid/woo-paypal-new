@@ -143,9 +143,6 @@ class PayPal_Webhook_Event_Handler {
 		$parent = $this->get_subscription_checkout_order( $id );
 		if ( ! $parent ) { return null; }
 		try {
-			if ( $parent->has_status( array( 'cancelled', 'failed', 'refunded', 'trash' ) ) ) {
-				throw new \RuntimeException( 'The subscription checkout order is closed.' );
-			}
 			$api = new PayPal_Request_API_Injector();
 			$api->set_mode_and_api_creds_based_on_mode( $mode );
 			$details = $api->get_paypal_subscription_details( $id );
@@ -154,6 +151,8 @@ class PayPal_Webhook_Event_Handler {
 				|| ! in_array( $details->status ?? '', array( 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'EXPIRED' ), true ) ) {
 				throw new \RuntimeException( 'PayPal subscription could not be verified for recovery.' );
 			}
+			$parent = PayPal_Checkout_Attempt::recover_approved_closed_order( $parent, $details );
+			if ( is_wp_error( $parent ) ) { throw new \RuntimeException( $parent->get_error_message() ); }
 			$subscription = PayPal_Utility_IPN_Related::create_subscription_order( $parent, array(), json_decode( wp_json_encode( $details ), true ), array() );
 			if ( is_wp_error( $subscription ) ) {
 				throw new \RuntimeException( $subscription->get_error_message() );
@@ -299,7 +298,7 @@ class PayPal_Webhook_Event_Handler {
 			$parent->update_meta_data( '_wcpprog_initial_payment_pending', 'no' );
 			$parent->set_transaction_id( $transaction_id );
 			$parent->save();
-			$parent->payment_complete( $transaction_id );
+			$this->resume_subscription_payment( $parent, $sub_order, $r );
 			/* translators: %s: PayPal transaction ID. */
 			$parent->add_order_note( sprintf( __( 'PayPal initial subscription payment received. Transaction ID: %s', 'woocommerce-paypal-pro-payment-gateway' ), $transaction_id ) );
 			$existing = array( $parent );
@@ -350,18 +349,20 @@ class PayPal_Webhook_Event_Handler {
 			$order->update_meta_data( '_wcpprog_subscription_order_id', $sub_order->get_id() );
 			$order->save();
 			if ( $needs_review ) {
+				$this->resume_subscription_payment( $order, $sub_order, $r );
 				/* translators: 1: transaction ID, 2: received amount, 3: received currency, 4: expected amount, 5: expected currency. */
 				$note = sprintf( __( 'PayPal payment received. Transaction ID: %1$s. Received %2$s %3$s; expected recurring total %4$s %5$s. Review required: this may include an outstanding balance or a price change. The payment is recorded on hold; reconcile product and tax allocations before completing this order. Do not charge the customer again.', 'woocommerce-paypal-pro-payment-gateway' ), $transaction_id, $amount, $currency, $sub_order->get_total(), $sub_order->get_currency() );
 				$order->add_order_note( $note );
 				$sub_order->add_order_note( $note );
 			} else {
-				$order->payment_complete( $transaction_id );
+				$this->resume_subscription_payment( $order, $sub_order, $r );
 				/* translators: %s: PayPal transaction ID. */
 				$order->add_order_note( sprintf( __( 'PayPal subscription renewal payment completed. Transaction ID: %s', 'woocommerce-paypal-pro-payment-gateway' ), $transaction_id ) );
 			}
 			$sub_order->add_related_order_id( $order->get_id() );
 			PayPal_Utils::log( 'Webhook: renewal order #' . $order->get_id() . ' created for transaction ' . $transaction_id, true );
 		} else {
+			$this->resume_subscription_payment( $existing[0], $sub_order, $r );
 			PayPal_Utils::log( 'Webhook: transaction ' . $transaction_id . ' already belongs to order #' . $existing[0]->get_id(), true );
 		}
 		// The initial charge (including a paid trial) is linked to the parent
@@ -375,6 +376,59 @@ class PayPal_Webhook_Event_Handler {
 		PayPal_Utils::log( 'Webhook: payment received; subscription order #' . $sub_order->get_id() . ' synchronized with PayPal status ' . $details->status . '.', true );
 		$sub_order->update_meta_data( '_paypal_last_transaction_id', $transaction_id );
 		$sub_order->save();
+	}
+
+	/** Resume a receipt saved before payment_complete or subscription linking finished. */
+	private function resume_subscription_payment( $order, $subscription, $receipt ) {
+		$log_context = array(
+			'order_id' => $order->get_id(),
+			'subscription_order_id' => $subscription->get_id(),
+			'transaction_id' => sanitize_text_field( $receipt['id'] ?? '' ),
+			'order_status' => $order->get_status(),
+		);
+		$is_parent = (int) $order->get_id() === (int) $subscription->get_parent_order_id_ref();
+		if ( 'paypal_checkout' !== $order->get_payment_method()
+		     || $order->get_meta( '_wcppprog_paypal_subscription_id', true ) !== ( $receipt['billing_agreement_id'] ?? '' )
+		     || ( ! $is_parent && (int) $order->get_meta( '_wcpprog_subscription_order_id', true ) !== (int) $subscription->get_id() ) ) {
+			PayPal_Utils::log( 'Webhook receipt rejected: checkout ownership conflict. ' . wp_json_encode( $log_context ), false );
+			wp_die( 'Payment receipt belongs to another checkout. Retry later.', '', array( 'response' => 503 ) );
+		}
+		// Never reopen intentional holds, closed orders, refunds or already-paid receipts.
+		if ( 'yes' !== $order->get_meta( '_wcpprog_payment_review_required', true )
+		     && $order->has_status( 'pending' ) && ! $order->get_date_paid() && ! $order->get_refunds() ) {
+			$amount   = $receipt['amount']['total'] ?? ( $receipt['amount']['value'] ?? '' );
+			$currency = $receipt['amount']['currency'] ?? ( $receipt['amount']['currency_code'] ?? '' );
+			if ( ! is_numeric( $amount ) || (float) $amount <= 0 || $currency !== $order->get_currency()
+			     || wc_format_decimal( $amount, wc_get_price_decimals() ) !== wc_format_decimal( $order->get_total(), wc_get_price_decimals() )
+			     || ( $order->get_transaction_id() && $order->get_transaction_id() !== $receipt['id'] ) ) {
+				PayPal_Utils::log( 'Webhook receipt rejected: amount, currency or transaction does not match saved order. ' . wp_json_encode( $log_context ), false );
+				wp_die( 'Payment receipt does not match saved order. Retry later.', '', array( 'response' => 503 ) );
+			}
+			$order->payment_complete( $receipt['id'] );
+			// WooCommerce can catch payment-completion exceptions internally.
+			$order = wc_get_order( $order->get_id() );
+			if ( ! $order || ! $order->get_date_paid() ) {
+				PayPal_Utils::log( 'Webhook receipt incomplete: payment completion did not persist a paid date. ' . wp_json_encode( $log_context ), false );
+				wp_die( 'Payment completion is not ready. Retry later.', '', array( 'response' => 503 ) );
+			}
+		} elseif ( ! $order->get_date_paid() || $order->has_status( array( 'on-hold', 'cancelled', 'failed', 'refunded', 'trash' ) )
+			|| $order->get_refunds() || 'yes' === $order->get_meta( '_wcpprog_payment_review_required', true ) ) {
+			// Duplicate deliveries must not repeatedly add the same review note.
+			$notice_key = hash( 'sha256', ( $receipt['id'] ?? '' ) . ':' . $order->get_status() );
+			if ( $notice_key !== $order->get_meta( '_wcpprog_preserved_payment_status_notice', true ) ) {
+				$order->add_order_note( sprintf(
+					/* translators: 1: PayPal transaction ID, 2: unchanged order status. */
+					__( 'Verified PayPal payment notification received for transaction %1$s. Order status "%2$s" was preserved; automatic payment completion was skipped to respect an existing hold, closed status, refund or paid record. Review this receipt against the order before taking further action. Do not charge the customer again.', 'woocommerce-paypal-pro-payment-gateway' ),
+					sanitize_text_field( $receipt['id'] ?? '' ), $order->get_status()
+				) );
+				$order->update_meta_data( '_wcpprog_preserved_payment_status_notice', $notice_key );
+				$order->save();
+				PayPal_Utils::log( 'Webhook receipt recorded with order status preserved; automatic completion skipped. ' . wp_json_encode( $log_context ), true );
+			}
+		}
+		if ( ! $is_parent ) {
+			$subscription->add_related_order_id( $order->get_id() );
+		}
 	}
 
 	/** Use PayPal's current schedule, never an interval inferred from a sale date. */
