@@ -165,6 +165,127 @@ class PayPal_Checkout_Attempt {
 		} );
 	}
 
+	/** Caller must hold the subscription payment lock and supply server-verified details. */
+	public static function recover_approved_closed_order( $order, $details ) {
+		try {
+			$order = self::resolve_subscription_order( wc_get_order( $order->get_id() ) );
+			if ( ! $order ) {
+				throw new \RuntimeException( 'Replacement chain could not be verified.' );
+			}
+			if ( ! $order->has_status( array( 'cancelled', 'failed', 'refunded', 'trash' ) ) ) {
+				return $order;
+			}
+			$id        = $order->get_meta( '_wcppprog_paypal_subscription_id', true );
+			$breakdown = $order->get_meta( '_wcppprog_recurring_breakdown', true );
+			if ( ! $order->has_status( array( 'cancelled', 'failed' ) ) || ! self::is_unpaid_unlinked( $order )
+			     || 'paypal_checkout' !== $order->get_payment_method() || 'shop_order' !== $order->get_type()
+			     || ! $id || $id !== ( $details->id ?? '' )
+			     || ! $order->get_meta( '_wcpprog_paypal_plan_id', true )
+			     || $order->get_meta( '_wcpprog_paypal_plan_id', true ) !== ( $details->plan_id ?? '' )
+			     || ! in_array( $details->status ?? '', array( 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'EXPIRED' ), true )
+			     || empty( $breakdown['props'] ) || empty( $breakdown['items'] ) ) {
+				throw new \RuntimeException( 'Closed checkout cannot be safely recovered from PayPal.' );
+			}
+			$existing = wc_get_orders( array(
+				'type'       => \WCPPROG_Subscription_Order_Handler::ORDER_TYPE,
+				'status'     => array_merge( array_keys( \WCPPROG_Subscription_Order_Handler::get_subscription_statuses() ), array( 'trash' ) ),
+				'meta_key'   => '_wcppprog_paypal_subscription_id',
+				'meta_value' => $id,
+				'limit'      => 1
+			) );
+			if ( $existing ) {
+				throw new \RuntimeException( 'An existing local subscription requires reconciliation.' );
+			}
+			$candidates = wc_get_orders( array(
+				'type'       => 'shop_order',
+				'status'     => array_merge( array_keys( wc_get_order_statuses() ), array( 'trash' ) ),
+				'meta_key'   => '_wcpprog_late_approval_source',
+				'meta_value' => $order->get_id(),
+				'limit'      => - 1
+			) );
+			$new        = false;
+			foreach ( $candidates as $candidate ) {
+				if ( ! self::is_unpaid_unlinked( $candidate ) || 'paypal_checkout' !== $candidate->get_payment_method()
+				     || (int) $candidate->get_customer_id() !== (int) $order->get_customer_id()
+				     || $candidate->get_meta( '_wcpprog_replacement_order_id', true )
+				     || $candidate->get_meta( '_wcppprog_paypal_subscription_id', true ) !== $id
+				     || ! $candidate->has_status( array( 'pending', 'cancelled', 'failed' ) ) ) {
+					self::log_subscription_retry( 'late_approval_candidate_conflict', $candidate, $details, array( 'source_order_id' => $order->get_id() ) );
+					throw new \RuntimeException( 'Late approval candidate requires reconciliation.' );
+				}
+				if ( ! $new && $candidate->has_status( 'pending' ) ) {
+					$new = $candidate;
+				}
+			}
+			if ( ! $new ) {
+				$new = new \WC_Order();
+			}
+			// Copy only checkout properties, never payment, refund or stock-reduction metadata.
+			$props = array(
+				'billing'  => $order->get_address( 'billing' ),
+				'shipping' => $order->get_address( 'shipping' ),
+			);
+			foreach (
+				array(
+					'customer_id',
+					'currency',
+					'prices_include_tax',
+					'payment_method',
+					'payment_method_title',
+					'customer_note',
+					'discount_total',
+					'discount_tax',
+					'shipping_total',
+					'shipping_tax',
+					'cart_tax',
+					'total'
+				) as $prop
+			) {
+				$props[ $prop ] = $order->{'get_' . $prop}( 'edit' );
+			}
+			$result = $new->set_props( $props );
+			if ( is_wp_error( $result ) ) {
+				throw new \RuntimeException( 'Unable to copy checkout properties.' );
+			}
+			$new->set_status( 'pending' );
+			if ( $new->get_id() ) {
+				$new->remove_order_items();
+			}
+			foreach ( $order->get_items( array( 'line_item', 'shipping', 'fee', 'tax', 'coupon' ) ) as $item ) {
+				$new->add_item( PayPal_Utility_IPN_Related::copy_subscription_line_item( $item ) );
+			}
+			foreach (
+				array(
+					'_wcppprog_paypal_subscription_id',
+					'_wcpprog_paypal_plan_id',
+					'_wcppprog_recurring_breakdown',
+					'_wcpprog_has_trial',
+					'_wcpprog_initial_payment_pending',
+					'_wcpprog_checkout_fingerprint'
+				) as $key
+			) {
+				$new->update_meta_data( $key, $order->get_meta( $key, true ) );
+			}
+			$new->update_meta_data( '_wcpprog_late_approval_source', $order->get_id() );
+			$new->save();
+			$order = wc_get_order( $order->get_id() );
+			if ( ! $order->has_status( array( 'cancelled', 'failed' ) ) || ! self::is_unpaid_unlinked( $order )
+			     || $order->get_meta( '_wcpprog_replacement_order_id', true ) ) {
+				throw new \RuntimeException( 'Closed checkout changed during recovery.' );
+			}
+			$order->update_meta_data( '_wcpprog_replacement_order_id', $new->get_id() );
+			$order->save();
+			$order->add_order_note( sprintf( __( 'PayPal approval arrived after this order closed. Recovered into order #%s using the same PayPal subscription.', 'woocommerce-paypal-pro-payment-gateway' ), $new->get_id() ) );
+			$new->add_order_note( sprintf( __( 'Recovered late PayPal approval from order #%s. Payment is recorded separately from verified payment notifications.', 'woocommerce-paypal-pro-payment-gateway' ), $order->get_id() ) );
+
+			return $new;
+		} catch ( \Throwable $error ) {
+			PayPal_Utils::log( 'Late subscription approval recovery: ' . $error->getMessage(), false );
+
+			return new \WP_Error( 'paypal_late_approval_recovery_failed', __( 'Unable to reconcile the approved PayPal subscription. Please contact the store.', 'woocommerce-paypal-pro-payment-gateway' ) );
+		}
+	}
+
 	private static function has_subscription_activity( $details ) {
 		// PayPal can identify the payer while approval is still pending.
 		// Identity alone does not establish approval or payment activity.
