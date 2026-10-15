@@ -4,7 +4,7 @@ Donate link: https://wp-ecommerce.net/woocommerce-paypal-checkout-paypal-pro
 Tags: paypal, paypal pro, woocommerce, paypal checkout, credit card
 Requires at least: 6.5
 Tested up to: 7.1
-Stable tag: 4.0.0
+Stable tag: 4.1.0
 License: GPL2 or Later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -98,10 +98,15 @@ Please visit the following documentation pages to view screenshots:
 
 == Changelog ==
 
-= WIP =
-- Description updated to include PayPal checkout features and details.
-- Subscription feature added for PayPal PPCP.
-- PayPal Checkout button on cart page does not render now.
+= 4.1.0 =
+- New: PayPal subscriptions with PayPal Checkout. Create subscription products with a recurring price, billing interval, optional free or paid trial, and an optional number of payments.
+- New: Customers can view their subscriptions, received payments and cancel a subscription from My Account > Subscriptions.
+- New: Subscription management in the WordPress admin, including received payment history (with refunds), cancellation in PayPal, and sending subscription details to the customer by email.
+- New: Renewal payments, refunds and subscription status changes are synchronized automatically using PayPal webhooks.
+- New: A notice is shown when PayPal Checkout webhooks have not been created.
+- Changed: The PayPal Checkout button is no longer shown on the cart page. Customers pay with PayPal on the checkout page.
+- Changed: PayPal Checkout is not offered for products from the WooCommerce Subscriptions plugin.
+- Description updated to include PayPal Checkout features and details.
 
 = 4.0.0 =
 - PayPal Commerce Platform (PPCP) payment option added. [PayPal Checkout setup and configuration documentation](https://wp-ecommerce.net/woocommerce-paypal-checkout-paypal-pro)
