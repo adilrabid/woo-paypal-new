@@ -452,12 +452,8 @@ class PayPal_Button_Sub_Ajax_Handler {
     }
 
 	private function process_subscription_approval( $data, $txn_data ) {
-		//Create the IPN data array from the transaction data.
-		//Need to include the following values in the $data array.
-//		$data['custom_field'] = get_transient( $unique_key );//We saved the custom field data in the transient using the unique key. // TODO: Remvoe this
-
 		//Validate the subscription txn data before using it.
-		$validation_response = $this->validate_subscription_checkout_txn_data( $data, $txn_data ); // TODO: need to uncomment
+		$validation_response = $this->validate_subscription_checkout_txn_data( $data, $txn_data );
 		if ( $validation_response !== true ) {
 			return new \WP_Error( 'paypal_approval_invalid', $validation_response );
 		}

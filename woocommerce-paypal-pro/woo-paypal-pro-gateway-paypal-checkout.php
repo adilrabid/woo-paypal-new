@@ -73,20 +73,6 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     }
 
     /**
-     * Debug method to check if cart hooks are firing
-     */
-    public function debug_cart_hook() {
-        echo '<!-- PayPal Checkout: Cart hook fired -->';
-    }
-
-    /**
-     * Debug method to check if checkout hooks are firing
-     */
-    public function debug_checkout_hook() {
-        echo '<!-- PayPal Checkout: Checkout hook fired -->';
-    }
-
-    /**
      * Initialize Gateway Settings Form Fields
      */
     public function init_form_fields() {
@@ -208,7 +194,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'live_webhook_status' => array(
                 'title'       => __('Live Webhook Status', 'woocommerce-paypal-pro-payment-gateway'),
                 'type'        => 'webhook_status',
-                'description' => __('TODO: Need to update.', 'woocommerce-paypal-pro-payment-gateway'),
+                'description' => __('Shows whether the webhook exists in your live PayPal account. PayPal uses it to notify your store about subscription payments, renewals, cancellations and refunds. Use the Create Webhook button if it does not exist.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => '',
                 'desc_tip'    => true,
                 'subtab'    => 'webhooks',
@@ -219,7 +205,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'test_webhook_status' => array(
                 'title'       => __('Test Webhook Status', 'woocommerce-paypal-pro-payment-gateway'),
                 'type'        => 'webhook_status',
-                'description' => __('TODO: Need to update.', 'woocommerce-paypal-pro-payment-gateway'),
+                'description' => __('Shows whether the webhook exists in your PayPal sandbox (test) account. PayPal uses it to notify your store about subscription payments, renewals, cancellations and refunds. Use the Create Webhook button if it does not exist.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => '',
                 'desc_tip'    => true,
                 'subtab'    => 'webhooks',
@@ -230,7 +216,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'delete_webhooks' => array(
                 'title'       => __('Delete Webhooks', 'woocommerce-paypal-pro-payment-gateway'),
                 'type'        => 'delete_webhooks',
-                'description' => __('TODO: Need to update.', 'woocommerce-paypal-pro-payment-gateway'),
+                'description' => __('Deletes the webhooks this plugin created in your live and sandbox PayPal accounts. Use this if webhooks are not working, then create them again.', 'woocommerce-paypal-pro-payment-gateway'),
                 'default'     => '',
                 'desc_tip'    => true,
                 'subtab'    => 'webhooks',
@@ -391,7 +377,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
      * Enqueue payment scripts
      */
     public function payment_scripts() {
-        if (! is_cart() && ! is_checkout() && ! isset($_GET['pay_for_order'])) {
+        if (! is_checkout() && ! isset($_GET['pay_for_order'])) {
             return;
         }
 
@@ -461,7 +447,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
     }
 
     /**
-     * Render PayPal button on cart page (for cart shortcode)
+     * Render the PayPal button container in the checkout payment method fields.
      */
     public function payment_fields() {
         ?>

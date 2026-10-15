@@ -310,32 +310,8 @@ function woo_pp_pro_render_ppcp_btn(render_to) {
 // classes and renderer above have been initialized.
 document.dispatchEvent(new Event('wcpprog_paypal_sdk_ready'));
 
-var woo_pp_pro_render_ppcp_retry_count = 0;
-
-function woo_pp_pro_render_ppcp_btn_with_retry(btn_container_id = 'paypal-checkout-button-container', retry_count = 3, retry_interval = 1000){
-    if ((woo_pp_pro_render_ppcp_retry_count + 1) >= retry_count) {
-        woo_pp_pro_render_ppcp_retry_count = 0; // Clear retry count.
-        return;
-    }
-    
-    const btn_container = document.getElementById(btn_container_id);
-
-    if (! btn_container ) {
-        woo_pp_pro_render_ppcp_retry_count++;
-        setTimeout(function(){
-            woo_pp_pro_render_ppcp_btn_with_retry();
-        }, retry_interval);
-        return;
-    } 
-    
-    if(!btn_container.children.length){   
-        woo_pp_pro_render_ppcp_btn('#' + btn_container_id);
-    }
-}
-
 function woo_pp_pro_toggle_place_order_btn(target_methods) {
     if (!Array.isArray(target_methods)) {
-        console.log('PayPal: target_methods is not an array.');
         return;
     }
 
@@ -382,56 +358,3 @@ jQuery(function ($) {
     renderCheckoutButton();
     $(document.body).on('updated_checkout', renderCheckoutButton);
 });
-
-function woo_pp_pro_inject_btn_for_cart_block() {
-    // Check if we're on cart page
-    if (document.querySelector('.wc-block-cart')) {
-        woo_pp_pro_inject_cart_page_btn();
-    }
-}
-
-function woo_pp_pro_inject_cart_page_btn() {
-    // Don't inject if already exists
-    const btn_container_id = 'paypal-checkout-button-container';
-    if (document.getElementById(btn_container_id) ) {
-        console.log('PayPal: Already exists'); 
-        return;
-    }
-
-    // Try multiple selectors for cart totals area
-    var selectors = [
-        '.wc-block-cart__totals-wrapper',
-        '.cart-collaterals',
-        '.cart_totals',
-        '.wc-block-cart-totals',
-        '.woocommerce-cart-form + .cart-collaterals',
-        '.wp-block-woocommerce-cart-totals-block'
-    ];
-
-    var targetElement = null;
-    for (var i = 0; i < selectors.length; i++) {
-        targetElement = document.querySelector(selectors[i]);
-        if (targetElement) {
-            console.log('PayPal: Found cart target with selector: ' + selectors[i]);
-            break;
-        }
-    }
-
-    if (targetElement) {
-        var buttonContainer = document.createElement('div');
-        buttonContainer.id = btn_container_id;
-        buttonContainer.style.cssText = 'border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px; background: #f9f9f9;';
-        buttonContainer.innerHTML = '<h3>Or pay with PayPal</h3><div id="paypal-checkout-button-container" style="margin: 20px 0;"></div>';
-
-        targetElement.appendChild(buttonContainer);
-        woo_pp_pro_render_ppcp_btn('#' + btn_container_id);
-    } else {
-        console.log('PayPal: Could not find cart target element');
-    }
-}
-
-function woo_pp_pro_re_inject_btn_on_cart_update(){
-    woo_pp_pro_render_ppcp_btn_with_retry();
-}
-
-jQuery( document.body ).on( 'updated_cart_totals updated_wc_div', woo_pp_pro_re_inject_btn_on_cart_update);
