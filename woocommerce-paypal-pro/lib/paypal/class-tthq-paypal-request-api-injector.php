@@ -75,9 +75,9 @@ class PayPal_Request_API_Injector {
                 'plan_name' => 'Billing plan for ' . $product_name,
                 'paypal_product_id' => $paypal_product_id,
                 'billing_cycles' => $billing_cycles,
-                'sub_recur_reattemp' => 1,
+                'sub_recur_reattemp' => ! empty( $subsc_args['sub_recur_reattemp'] ) ? 1 : 0,
             );
-            
+
             $plan_api_params = $pp_subsc_billing_plan->construct_create_billing_plan_api_params($plan_args);
             
             $created_plan_id = $this->create_paypal_billing_plan($plan_api_params);

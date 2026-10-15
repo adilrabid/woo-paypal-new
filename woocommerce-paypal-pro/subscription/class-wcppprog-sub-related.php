@@ -420,7 +420,7 @@ class WCPPROG_Subscription_Related {
         woocommerce_wp_checkbox( array(
                 'id'          => '_wcppprog_sub_reattempt_on_failure',
                 'label'       => __( 'Reattempt on Failure', 'woocommerce-paypal-pro-payment-gateway' ),
-                'description' => __( 'When checked, the payment will be re-attempted two more times if the payment fails. After the third failure, the subscription will be canceled.', 'woocommerce-paypal-pro-payment-gateway' ),
+                'description' => __( 'PayPal automatically retries a failed payment up to two times, 5 days apart. When checked, PayPal suspends the subscription only after 3 billing cycles in a row fail. When unchecked, it suspends after the first failed billing cycle. A suspended subscription shows as On hold, and any missed amount is added to the next payment.', 'woocommerce-paypal-pro-payment-gateway' ),
         ) );
 
         echo '</div>'; // End of option group

@@ -194,8 +194,10 @@ class PayPal_Utils{
                 $args['sub_trial_period_type'] = '';
                 $args['sub_trial_price'] = '0.00';
             }
+            // Version 2: plans created by version 1 used a daily frequency and a
+            // fixed failure threshold. Bumping it makes products get corrected plans.
             $fingerprint = hash( 'sha256', wp_json_encode( array(
-                'version' => 1,
+                'version' => 2,
                 'mode' => $mode,
                 'client_id' => $keys['client_id'],
                 'merchant' => self::get_seller_merchant_id_by_environment_mode( $mode ),

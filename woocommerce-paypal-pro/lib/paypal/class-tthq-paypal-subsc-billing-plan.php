@@ -28,7 +28,9 @@ class PayPal_Subsc_Billing_Plan {
             'payment_preferences' => array(
                     'auto_bill_outstanding'     => true,
                     'setup_fee_failure_action'  => 'CANCEL',
-                    'payment_failure_threshold' => $plan_args['sub_recur_reattemp'] ? 3 : 0,
+                    // PayPal retries each failed payment itself and suspends the subscription
+                    // after this many consecutive failed billing cycles. 0 is undocumented.
+                    'payment_failure_threshold' => $plan_args['sub_recur_reattemp'] ? 3 : 1,
             ),
             'quantity_supported'  => true,
         );
@@ -105,6 +107,15 @@ class PayPal_Subsc_Billing_Plan {
      * @return array
      */
     private function get_period_type($type, $count) {
+        // Products store 'day'/'week'/'month'/'year'; the shared library also uses
+        // 'D'/'W'/'M'/'Y'. Accept both so an interval never falls back to days.
+        $type_map = array(
+            'd' => 'D', 'day' => 'D',
+            'w' => 'W', 'week' => 'W',
+            'm' => 'M', 'month' => 'M',
+            'y' => 'Y', 'year' => 'Y',
+        );
+        $type = isset( $type_map[ strtolower( (string) $type ) ] ) ? $type_map[ strtolower( (string) $type ) ] : 'D';
 
         switch ($type) {
             case 'W':
