@@ -421,7 +421,7 @@ class WCPPROG_Subscription_Related {
         $this->woocommerce_wp_time_period_input(
                 array(
                         'label'       => __( 'Recurring Billing Interval', 'woocommerce-paypal-pro-payment-gateway' ),
-                        'description' => __( 'Length of the recurring billing period. It can be up to 1 year: 365 days, 52 weeks, 12 months, or 1 year. Higher values are automatically reduced to the maximum for the selected unit.', 'woocommerce-paypal-pro-payment-gateway' ),
+                        'description' => __( 'How often the customer is charged, for example every 1 month. The maximum is 365 days, 52 weeks, 12 months or 1 year (a PayPal limit). Larger values are reduced to the maximum when you save the product.', 'woocommerce-paypal-pro-payment-gateway' ),
                 ),
                 array(
                         'id'                => '_wcppprog_sub_recurring_billing_interval',
@@ -457,7 +457,7 @@ class WCPPROG_Subscription_Related {
         $this->woocommerce_wp_time_period_input(
                 array(
                         'label'       => __( 'Trial Period', 'woocommerce-paypal-pro-payment-gateway' ),
-                        'description' => __( 'Length of the trial period. It can be up to 365 days, 52 weeks, 12 months, or 1 year. Higher values are automatically reduced to the maximum for the selected unit. Leave empty or enter 0 to disable the trial.', 'woocommerce-paypal-pro-payment-gateway' ),
+                        'description' => __( 'Optional free or paid trial before regular billing starts, for example 14 days. The maximum is 365 days, 52 weeks, 12 months or 1 year (a PayPal limit), and larger values are reduced when you save. Leave empty or enter 0 for no trial.', 'woocommerce-paypal-pro-payment-gateway' ),
                 ),
                 array(
                         'id' => '_wcppprog_sub_trial_period',
