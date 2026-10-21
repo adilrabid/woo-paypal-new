@@ -324,14 +324,14 @@ class PayPal_Button_Sub_Ajax_Handler {
 		$item = reset( $items );
 		if ( count( $items ) !== 1 || ! $item || (float) $item['quantity'] !== 1.0
 			|| ! $item['data'] instanceof \WCPPROG_Subscription_Product ) {
-			throw new \InvalidArgumentException( __( 'Please check out with one subscription and a quantity of one, without other products.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			throw new \InvalidArgumentException( esc_html__( 'Please check out with one subscription and a quantity of one, without other products.', 'woocommerce-paypal-pro-payment-gateway' ) );
 		}
 		if ( ! $item['data']->is_purchasable() || ! $this->wc_paypal_ppcp->is_available() ) {
-			throw new \InvalidArgumentException( __( 'This subscription is not available for checkout.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			throw new \InvalidArgumentException( esc_html__( 'This subscription is not available for checkout.', 'woocommerce-paypal-pro-payment-gateway' ) );
 		}
 		$webhook_notice = $this->wc_paypal_ppcp->webhook_missing_notice();
 		if ( $webhook_notice ) {
-			throw new \InvalidArgumentException( $webhook_notice );
+			throw new \InvalidArgumentException( esc_html( $webhook_notice ) );
 		}
 
 		PayPal_Checkout_Guard::validate_addresses( $this->checkout_customer_data, $cart->needs_shipping() );
@@ -342,7 +342,7 @@ class PayPal_Button_Sub_Ajax_Handler {
 		if ( wc_notice_count( 'error' ) ) {
 			$errors = wc_get_notices( 'error' );
 			wc_clear_notices();
-			throw new \InvalidArgumentException( wp_strip_all_tags( implode( ' ', array_column( $errors, 'notice' ) ) ) );
+			throw new \InvalidArgumentException( esc_html( wp_strip_all_tags( implode( ' ', array_column( $errors, 'notice' ) ) ) ) );
 		}
 	}
 

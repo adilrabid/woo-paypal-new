@@ -13,6 +13,13 @@ class WCPPROG_Subscription_Related {
     const SUBSCRIPTION_PRODUCT_TYPE = 'wcpprog_subscription';
     const PAYMENT_REQUIREMENT = 'wcppprog_subscription_checkout';
 
+    const BILLING_INTERVAL_LIMITS = array(
+        'day' => 365,
+        'week' => 52,
+        'month' => 12,
+        'year' => 1,
+    );
+
     const SUBSCRIPTION_PRODUCT_FIELDS = array(
             'wcppprog_sub_recurring_price'                 => '',
             'wcppprog_sub_recurring_sale_price'            => '',
@@ -329,6 +336,27 @@ class WCPPROG_Subscription_Related {
             jQuery(function ($) {
                 $('#inventory_product_data .show_if_simple.show_if_variable').addClass('show_if_<?php echo esc_js( self::SUBSCRIPTION_PRODUCT_TYPE ); ?>');
 
+                const intervalLimits = <?php echo wp_json_encode( self::BILLING_INTERVAL_LIMITS ); ?>;
+                function bindIntervalLimit(intervalSelector, periodSelector) {
+                    const $interval = $(intervalSelector);
+                    const $period = $(periodSelector);
+                    function limitInterval() {
+                        const maximum = intervalLimits[$period.val()];
+                        if (!maximum) {
+                            return;
+                        }
+                        $interval.attr('max', maximum);
+                        if (Number($interval.val()) > maximum) {
+                            $interval.val(maximum);
+                        }
+                    }
+                    $interval.on('input change', limitInterval);
+                    $period.on('change', limitInterval);
+                    limitInterval();
+                }
+                bindIntervalLimit('#_wcppprog_sub_recurring_billing_interval', '#_wcppprog_sub_recurring_billing_interval_type');
+                bindIntervalLimit('#_wcppprog_sub_trial_period', '#_wcppprog_sub_trial_period_type');
+
                 <?php if ( 'post.php' === $pagenow ) : // Only lock types on the edit screen, not Add Product. ?>
                 const $type = $('#product-type');
                 const subscriptionType = '<?php echo esc_js( self::SUBSCRIPTION_PRODUCT_TYPE ); ?>';
@@ -393,7 +421,7 @@ class WCPPROG_Subscription_Related {
         $this->woocommerce_wp_time_period_input(
                 array(
                         'label'       => __( 'Recurring Billing Interval', 'woocommerce-paypal-pro-payment-gateway' ),
-                        'description' => __( 'Length of the recurring billing period', 'woocommerce-paypal-pro-payment-gateway' ),
+                        'description' => __( 'Length of the recurring billing period. It can be up to 1 year: 365 days, 52 weeks, 12 months, or 1 year. Higher values are automatically reduced to the maximum for the selected unit.', 'woocommerce-paypal-pro-payment-gateway' ),
                 ),
                 array(
                         'id'                => '_wcppprog_sub_recurring_billing_interval',
@@ -429,7 +457,7 @@ class WCPPROG_Subscription_Related {
         $this->woocommerce_wp_time_period_input(
                 array(
                         'label'       => __( 'Trial Period', 'woocommerce-paypal-pro-payment-gateway' ),
-                        'description' => __( 'Length of the trial period', 'woocommerce-paypal-pro-payment-gateway' ),
+                        'description' => __( 'Length of the trial period. It can be up to 365 days, 52 weeks, 12 months, or 1 year. Higher values are automatically reduced to the maximum for the selected unit. Leave empty or enter 0 to disable the trial.', 'woocommerce-paypal-pro-payment-gateway' ),
                 ),
                 array(
                         'id' => '_wcppprog_sub_trial_period',
@@ -460,6 +488,28 @@ class WCPPROG_Subscription_Related {
             $value    = isset( $_POST[ $post_key ] ) ? wc_clean( wp_unslash( $_POST[ $post_key ] ) ) : $default;
             $setter   = "set_$prop";
             $product->$setter( $value );
+        }
+
+        // Keep saved terms consistent with PayPal even when JavaScript is bypassed.
+        $period = $product->get_wcppprog_sub_recurring_billing_interval_type( 'edit' );
+        if ( isset( self::BILLING_INTERVAL_LIMITS[ $period ] ) ) {
+            $product->set_wcppprog_sub_recurring_billing_interval(
+                max( 1, min(
+                    self::BILLING_INTERVAL_LIMITS[ $period ],
+                    $product->get_wcppprog_sub_recurring_billing_interval( 'edit' )
+                ) )
+            );
+        }
+
+        $trial_period = $product->get_wcppprog_sub_trial_period_type( 'edit' );
+        if ( isset( self::BILLING_INTERVAL_LIMITS[ $trial_period ] ) ) {
+            // Zero disables the trial and must not be raised to one.
+            $product->set_wcppprog_sub_trial_period(
+                max( 0, min(
+                    self::BILLING_INTERVAL_LIMITS[ $trial_period ],
+                    (int) $product->get_wcppprog_sub_trial_period( 'edit' )
+                ) )
+            );
         }
 
         // WooCommerce uses these standard fields for purchasability and cart pricing.

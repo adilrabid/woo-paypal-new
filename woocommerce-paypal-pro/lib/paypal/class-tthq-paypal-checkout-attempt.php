@@ -154,7 +154,9 @@ class PayPal_Checkout_Attempt {
 				}
 				$current->update_meta_data( '_wcpprog_replacement_order_id', $new->get_id() );
 				$current->save();
+				/* translators: %s: Replacement order ID. */
 				$current->add_order_note( sprintf( __( 'Pending PayPal approval moved to replacement order #%s. This order remains closed.', 'woocommerce-paypal-pro-payment-gateway' ), $new->get_id() ) );
+				/* translators: %s: Original order ID. */
 				$new->add_order_note( sprintf( __( 'Resuming the existing PayPal approval from order #%s. No new PayPal subscription was created.', 'woocommerce-paypal-pro-payment-gateway' ), $current->get_id() ) );
 				self::log_subscription_retry( 'replacement_order_ready', $new, false, array( 'original_order_id' => $current->get_id() ) );
 				return $new;
@@ -275,7 +277,9 @@ class PayPal_Checkout_Attempt {
 			}
 			$order->update_meta_data( '_wcpprog_replacement_order_id', $new->get_id() );
 			$order->save();
+			/* translators: %s: Replacement order ID. */
 			$order->add_order_note( sprintf( __( 'PayPal approval arrived after this order closed. Recovered into order #%s using the same PayPal subscription.', 'woocommerce-paypal-pro-payment-gateway' ), $new->get_id() ) );
+			/* translators: %s: Original order ID. */
 			$new->add_order_note( sprintf( __( 'Recovered late PayPal approval from order #%s. Payment is recorded separately from verified payment notifications.', 'woocommerce-paypal-pro-payment-gateway' ), $order->get_id() ) );
 
 			return $new;

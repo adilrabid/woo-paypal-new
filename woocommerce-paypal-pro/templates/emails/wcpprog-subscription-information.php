@@ -67,8 +67,8 @@ if ( $next_payment && $order->has_status( array( \WCPPROG_Subscription_Order_Han
 
 <p>
     <?php
-    /* translators: 1: Subscription order number, 2: Creation date, 3: Subscription status. */
     echo sprintf(
+    /* translators: 1: Subscription order number, 2: Creation date, 3: Subscription status. */
     esc_html__( 'Subscription #%1$s was created on %2$s and is currently %3$s.', 'woocommerce-paypal-pro-payment-gateway' ),
     '<mark class="order-number">'.esc_html($order->get_order_number()).'</mark>',
     '<mark class="order-date"><time datetime="'.esc_attr( $order->get_date_created()->date( 'c' )).'">'. esc_html(wc_format_datetime( $order->get_date_created() )) .'</time></mark>',

@@ -90,13 +90,13 @@ class PayPal_Checkout_Guard {
 			$country = $data[ $type . '_country' ] ?? '';
 			$allowed = 'shipping' === $type ? WC()->countries->get_shipping_countries() : WC()->countries->get_allowed_countries();
 			if ( ! isset( $allowed[ $country ] ) ) {
-				throw new \InvalidArgumentException( __( 'Please select an allowed billing and shipping country.', 'woocommerce-paypal-pro-payment-gateway' ) );
+				throw new \InvalidArgumentException( esc_html__( 'Please select an allowed billing and shipping country.', 'woocommerce-paypal-pro-payment-gateway' ) );
 			}
 			foreach ( WC()->countries->get_address_fields( $country, $type . '_' ) as $key => $field ) {
 				$value = $data[ $key ] ?? '';
 				if ( ! empty( $field['required'] ) && '' === trim( $value ) ) {
 					/* translators: %s: Checkout field label. */
-					throw new \InvalidArgumentException( sprintf( __( '%s is required before paying.', 'woocommerce-paypal-pro-payment-gateway' ), wp_strip_all_tags( $field['label'] ?? $key ) ) );
+					throw new \InvalidArgumentException( esc_html( sprintf( __( '%s is required before paying.', 'woocommerce-paypal-pro-payment-gateway' ), wp_strip_all_tags( $field['label'] ?? $key ) ) ) );
 				}
 				if ( '' === $value ) {
 					continue;
@@ -105,13 +105,13 @@ class PayPal_Checkout_Guard {
 				if ( in_array( 'postcode', $validation, true ) && ! \WC_Validation::is_postcode( $value, $country )
 				     || in_array( 'phone', $validation, true ) && ! \WC_Validation::is_phone( $value )
 				     || in_array( 'email', $validation, true ) && ! is_email( $value ) ) {
-					throw new \InvalidArgumentException( __( 'Please enter valid checkout contact and address details.', 'woocommerce-paypal-pro-payment-gateway' ) );
+					throw new \InvalidArgumentException( esc_html__( 'Please enter valid checkout contact and address details.', 'woocommerce-paypal-pro-payment-gateway' ) );
 				}
 			}
 			$states = WC()->countries->get_states( $country );
 			$state  = $data[ $type . '_state' ] ?? '';
 			if ( $state && is_array( $states ) && $states && ! isset( $states[ $state ] ) ) {
-				throw new \InvalidArgumentException( __( 'Please select a valid state for your country.', 'woocommerce-paypal-pro-payment-gateway' ) );
+				throw new \InvalidArgumentException( esc_html__( 'Please select a valid state for your country.', 'woocommerce-paypal-pro-payment-gateway' ) );
 			}
 		}
 
@@ -125,11 +125,11 @@ class PayPal_Checkout_Guard {
 		$packages = WC()->shipping()->get_packages();
 		$chosen   = (array) WC()->session->get( 'chosen_shipping_methods', array() );
 		if ( ! $rates || ! $packages ) {
-			throw new \InvalidArgumentException( __( 'No shipping options are available for this address.', 'woocommerce-paypal-pro-payment-gateway' ) );
+			throw new \InvalidArgumentException( esc_html__( 'No shipping options are available for this address.', 'woocommerce-paypal-pro-payment-gateway' ) );
 		}
 		foreach ( $packages as $key => $package ) {
 			if ( empty( $chosen[ $key ] ) || ! isset( $package['rates'][ $chosen[ $key ] ] ) ) {
-				throw new \InvalidArgumentException( __( 'Please select an available shipping method for your address.', 'woocommerce-paypal-pro-payment-gateway' ) );
+				throw new \InvalidArgumentException( esc_html__( 'Please select an available shipping method for your address.', 'woocommerce-paypal-pro-payment-gateway' ) );
 			}
 		}
 	}

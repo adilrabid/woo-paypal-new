@@ -45,7 +45,7 @@ trait WCPPROG_Subscription_Related_Trait {
 		if ( ! is_null( $description ) ) {
 			$hidden_class = true === ( $field['description_hidden'] ?? false ) ? ' hidden' : '';
 			//phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			echo '<span class="description' . $hidden_class . '">' . wp_kses_post( $description ) . '</span>';
+			echo '<span class="description' . $hidden_class . '" style="margin-left: 0">' . wp_kses_post( $description ) . '</span>';
 		}
 
 		echo '</p>';
