@@ -356,8 +356,13 @@ class PayPal_Utility_IPN_Related {
 					$subscription_order->add_item( $recurring_item );
 				}
 
-				$interval = (int) $product->get_wcppprog_sub_recurring_billing_interval();
-				$period   = $product->get_wcppprog_sub_recurring_billing_interval_type();
+				$terms = $order->get_meta( '_wcpprog_agreed_plan', true );
+				if ( ! is_array( $terms ) || ! isset( $terms['sub_recur_period'], $terms['sub_recur_period_type'], $terms['sub_trial_period'], $terms['sub_trial_period_type'] ) ) {
+					throw new \RuntimeException( 'Missing agreed subscription plan.' );
+				}
+				$subscription_order->update_meta_data( '_wcpprog_agreed_plan', $terms );
+				$interval = (int) $terms['sub_recur_period'];
+				$period = $terms['sub_recur_period_type'];
 				$sub_plan_id = isset($txn_data['plan_id']) ? sanitize_text_field($txn_data['plan_id']) : '';
 
 				$subscription_order->update_meta_data( '_billing_interval', $interval );
@@ -368,8 +373,8 @@ class PayPal_Utility_IPN_Related {
 				$subscription_order->update_meta_data( '_paypal_subscription_plan_id', $sub_plan_id );
 
 				if ( $has_trial ) {
-					$trial_length = (int) $product->get_wcppprog_sub_trial_period();
-					$trial_period = $product->get_wcppprog_sub_trial_period_type();
+					$trial_length = (int) $terms['sub_trial_period'];
+					$trial_period = $terms['sub_trial_period_type'];
 					$next_payment = strtotime( "+{$trial_length} {$trial_period}" );
 				} else {
 					$next_payment = strtotime( "+{$interval} {$period}" );

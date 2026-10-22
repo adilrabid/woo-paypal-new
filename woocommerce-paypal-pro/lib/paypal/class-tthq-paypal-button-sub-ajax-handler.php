@@ -225,6 +225,12 @@ class PayPal_Button_Sub_Ajax_Handler {
 		$wc_order->update_meta_data( '_wcpprog_paypal_plan_id', $plan_id );
 		$wc_order->update_meta_data( '_wcppprog_recurring_breakdown', $this->recurring_breakdown );
 		$wc_order->update_meta_data( '_wcpprog_has_trial', $sub_product->is_trial_enabled() ? 'yes' : 'no' );
+		// Preserve the plan terms and buyer-specific amounts actually sent to PayPal.
+		$terms = $plan['terms'];
+		$cycles = $subscription_data['plan']['billing_cycles'];
+		$terms['initial_total'] = $cycles[0]['pricing_scheme']['fixed_price']['value'];
+		$terms['recurring_total'] = $cycles[count( $cycles ) - 1]['pricing_scheme']['fixed_price']['value'];
+		$wc_order->update_meta_data( '_wcpprog_agreed_plan', $terms );
 		WC()->session->set( 'wcpprog_subscription_approval_order', $wc_order->get_id() );
 		$wc_order->update_meta_data( '_wcpprog_initial_payment_pending', (float) $wc_order->get_total() > 0 ? 'yes' : 'no' );
 

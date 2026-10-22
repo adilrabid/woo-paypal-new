@@ -137,7 +137,7 @@ class PayPal_Checkout_Attempt {
 				}
 				$new->update_meta_data( '_wcpprog_recovery_source_order_id', $current->get_id() );
 				foreach ( array( '_wcppprog_paypal_subscription_id', '_wcpprog_paypal_plan_id', '_wcppprog_recurring_breakdown',
-					'_wcpprog_has_trial', '_wcpprog_initial_payment_pending', '_wcpprog_checkout_fingerprint' ) as $key ) {
+					'_wcpprog_agreed_plan', '_wcpprog_has_trial', '_wcpprog_initial_payment_pending', '_wcpprog_checkout_fingerprint' ) as $key ) {
 					$new->update_meta_data( $key, $current->get_meta( $key, true ) );
 				}
 				$new->save();
@@ -261,6 +261,7 @@ class PayPal_Checkout_Attempt {
 					'_wcppprog_paypal_subscription_id',
 					'_wcpprog_paypal_plan_id',
 					'_wcppprog_recurring_breakdown',
+					'_wcpprog_agreed_plan',
 					'_wcpprog_has_trial',
 					'_wcpprog_initial_payment_pending',
 					'_wcpprog_checkout_fingerprint'
