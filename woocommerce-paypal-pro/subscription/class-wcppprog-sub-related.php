@@ -271,6 +271,40 @@ class WCPPROG_Subscription_Related {
         return array( 'props' => $props, 'items' => $items );
     }
 
+    /** Describe agreed checkout totals without consulting the current product. */
+    public static function get_saved_subscription_plan_html( $order ) {
+        $terms = $order->get_meta( '_wcpprog_agreed_plan', true );
+        if ( ! is_array( $terms ) || ! isset( $terms['recurring_total'], $terms['initial_total'], $terms['currency'], $terms['sub_recur_period'], $terms['sub_recur_period_type'], $terms['sub_recur_count'], $terms['sub_trial_period'], $terms['sub_trial_period_type'] ) ) {
+            return esc_html__( 'Unavailable', 'woocommerce-paypal-pro-payment-gateway' );
+        }
+        $duration = static function ( $count, $unit ) {
+            $labels = array(
+                'day' => _n( '%d day', '%d days', $count, 'woocommerce-paypal-pro-payment-gateway' ),
+                'week' => _n( '%d week', '%d weeks', $count, 'woocommerce-paypal-pro-payment-gateway' ),
+                'month' => _n( '%d month', '%d months', $count, 'woocommerce-paypal-pro-payment-gateway' ),
+                'year' => _n( '%d year', '%d years', $count, 'woocommerce-paypal-pro-payment-gateway' ),
+            );
+            return $count > 0 && isset( $labels[$unit] ) ? sprintf( $labels[$unit], $count ) : '';
+        };
+        $money = static function ( $amount ) use ( $terms ) {
+            return wc_price( $amount, array( 'currency' => $terms['currency'] ) );
+        };
+        $interval = $duration( (int) $terms['sub_recur_period'], $terms['sub_recur_period_type'] );
+        /* translators: 1: recurring total, 2: billing duration, e.g. 2 months. */
+        $html = $interval ? sprintf( __( '%1$s every %2$s', 'woocommerce-paypal-pro-payment-gateway' ), $money( $terms['recurring_total'] ), esc_html( $interval ) )
+            : sprintf( __( 'Recurring payment: %s', 'woocommerce-paypal-pro-payment-gateway' ), $money( $terms['recurring_total'] ) );
+        $trial = $duration( (int) ( $terms['sub_trial_period'] ?? 0 ), $terms['sub_trial_period_type'] ?? '' );
+        if ( $trial && isset( $terms['initial_total'] ) ) {
+            /* translators: 1: trial total, 2: trial duration, 3: recurring payment description. */
+            $html = sprintf( __( '%1$s for %2$s, then %3$s', 'woocommerce-paypal-pro-payment-gateway' ), $money( $terms['initial_total'] ), esc_html( $trial ), $html );
+        }
+        $count = (int) $terms['sub_recur_count'];
+        $html .= $count > 0 ? esc_html( sprintf( _n( ', stops after %d recurring payment.', ', stops after %d recurring payments.', $count, 'woocommerce-paypal-pro-payment-gateway' ), $count ) )
+            : esc_html__( ', continues until cancelled.', 'woocommerce-paypal-pro-payment-gateway' );
+        $html .= '<br><small>' . esc_html__( 'Amounts include applicable tax, shipping, discounts and fees calculated at checkout.', 'woocommerce-paypal-pro-payment-gateway' ) . '</small>';
+        return $html;
+    }
+
     public static function get_subscription_plan_data( $cart_item ) {
         $product = $cart_item['data'];
 

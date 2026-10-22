@@ -232,7 +232,7 @@ class PayPal_Utils{
             $product->update_meta_data( '_wcppprog_sub_ppcp_plan_fingerprint', $fingerprint );
             $product->update_meta_data( '_wcppprog_sub_ppcp_plan_mode', $mode );
             $product->save_meta_data();
-            return array( 'success' => true, 'plan_id' => $plan_id, 'output' => '' );
+            return array( 'success' => true, 'plan_id' => $plan_id, 'terms' => $args, 'output' => '' );
         } finally {
             delete_option( $lock );
             $lock_held = false;

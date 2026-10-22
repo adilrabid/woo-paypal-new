@@ -28,14 +28,7 @@ foreach ( $order->get_items() as $item ){
     $details[ __( 'Product', 'woocommerce-paypal-pro-payment-gateway' ) ] = $item->get_name();
 }
 
-$plans = array();
-foreach ( $order->get_items() as $item ) {
-    $plan = WCPPROG_Subscription_Related::get_subscription_plan_data( array( 'data' => $item->get_product() ) );
-    if ( ! empty( $plan['subscription_plan_html'] ) ) {
-        $plans[] = $plan['subscription_plan_html'];
-    }
-}
-$details[ __( 'Subscription plan', 'woocommerce-paypal-pro-payment-gateway' ) ] = $plans ? implode( '<br>', $plans ) : esc_html__( 'Unavailable', 'woocommerce-paypal-pro-payment-gateway' );;
+$details[ __( 'Subscription plan', 'woocommerce-paypal-pro-payment-gateway' ) ] = WCPPROG_Subscription_Related::get_saved_subscription_plan_html( $order );
 
 $details[ __( 'Payment Method', 'woocommerce-paypal-pro-payment-gateway' ) ] = $gateway ?: '—';
 $details[ __( 'Subscription ID', 'woocommerce-paypal-pro-payment-gateway' ) ] = $paypal_id ?: '—';
