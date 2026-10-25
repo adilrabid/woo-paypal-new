@@ -228,6 +228,9 @@ class WCPPROG_Subscription_Related {
             try {
                 // Fee extensions may read the global cart instead of their argument.
                 WC()->cart = $recurring_cart;
+                // Clear copied initial-payment fees before recalculating recurring totals.
+                // WC_Cart_Totals runs woocommerce_cart_calculate_fees again so extensions
+                // can add applicable fees based on the recurring cart's prices.
                 $recurring_cart->fees_api()->remove_all_fees();
                 new WC_Cart_Totals( $recurring_cart );
                 $recurring_total = $recurring_cart->get_total( 'edit' );
@@ -290,13 +293,27 @@ class WCPPROG_Subscription_Related {
             return wc_price( $amount, array( 'currency' => $terms['currency'] ) );
         };
         $interval = $duration( (int) $terms['sub_recur_period'], $terms['sub_recur_period_type'] );
+        if ( 1 === (int) $terms['sub_recur_period'] ) {
+            $singular_units = array(
+                'day' => __( 'day', 'woocommerce-paypal-pro-payment-gateway' ),
+                'week' => __( 'week', 'woocommerce-paypal-pro-payment-gateway' ),
+                'month' => __( 'month', 'woocommerce-paypal-pro-payment-gateway' ),
+                'year' => __( 'year', 'woocommerce-paypal-pro-payment-gateway' ),
+            );
+            $interval = $singular_units[$terms['sub_recur_period_type']] ?? '';
+        }
         /* translators: 1: recurring total, 2: billing duration, e.g. 2 months. */
         $html = $interval ? sprintf( __( '%1$s every %2$s', 'woocommerce-paypal-pro-payment-gateway' ), $money( $terms['recurring_total'] ), esc_html( $interval ) )
             : sprintf( __( 'Recurring payment: %s', 'woocommerce-paypal-pro-payment-gateway' ), $money( $terms['recurring_total'] ) );
         $trial = $duration( (int) ( $terms['sub_trial_period'] ?? 0 ), $terms['sub_trial_period_type'] ?? '' );
         if ( $trial && isset( $terms['initial_total'] ) ) {
-            /* translators: 1: trial total, 2: trial duration, 3: recurring payment description. */
-            $html = sprintf( __( '%1$s for %2$s, then %3$s', 'woocommerce-paypal-pro-payment-gateway' ), $money( $terms['initial_total'] ), esc_html( $trial ), $html );
+            if ( 0.0 === (float) $terms['initial_total'] ) {
+                /* translators: 1: trial duration, 2: recurring payment description. */
+                $html = sprintf( __( 'Free for %1$s, then %2$s', 'woocommerce-paypal-pro-payment-gateway' ), esc_html( $trial ), $html );
+            } else {
+                /* translators: 1: trial total, 2: trial duration, 3: recurring payment description. */
+                $html = sprintf( __( '%1$s for %2$s, then %3$s', 'woocommerce-paypal-pro-payment-gateway' ), $money( $terms['initial_total'] ), esc_html( $trial ), $html );
+            }
         }
         $count = (int) $terms['sub_recur_count'];
         $html .= $count > 0 ? esc_html( sprintf( _n( ', stops after %d recurring payment.', ', stops after %d recurring payments.', $count, 'woocommerce-paypal-pro-payment-gateway' ), $count ) )
