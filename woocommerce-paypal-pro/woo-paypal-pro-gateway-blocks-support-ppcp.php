@@ -24,6 +24,8 @@ class WC_PP_PRO_Gateway_Blocks_Support_PPCP extends AbstractPaymentMethodType {
 	}
 
 	public function get_payment_method_script_handles() {
+		wp_enqueue_style('wcpprog-payment-processing', WC_PP_PRO_ADDON_URL . '/assets/css/woo-pp-pro-public-styles.css', array(), WC_PP_PRO_ADDON_VERSION);
+
 		$is_subscription = $this->gateway && $this->gateway->is_subscription_checkout();
 		$is_sandbox      = 'yes' === $this->get_setting( 'sandbox' );
 		$paypal_sdk      = PayPal_JS_Button_Embed::get_instance();
@@ -81,6 +83,7 @@ class WC_PP_PRO_Gateway_Blocks_Support_PPCP extends AbstractPaymentMethodType {
 				'createSubscriptionAction'   => PayPal_Utils::auto_prefix( 'sub_pp_create_subscription' ),
 				'approveSubscriptionAction'  => PayPal_Utils::auto_prefix( 'sub_onapprove_process_subscription' ),
 			),
+			'processing_message' => __('Processing payment…', 'woocommerce-paypal-pro-payment-gateway'),
 			'webhook_missing_notice' => $this->gateway->webhook_missing_notice(),
 		);
 	}

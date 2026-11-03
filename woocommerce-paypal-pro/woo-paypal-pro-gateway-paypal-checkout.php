@@ -393,6 +393,8 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             return;
         }
 
+        wp_enqueue_style('wcpprog-payment-processing', WC_PP_PRO_ADDON_URL . '/assets/css/woo-pp-pro-public-styles.css', array(), WC_PP_PRO_ADDON_VERSION);
+
         $pp_btn_js_embed = PayPal_JS_Button_Embed::get_instance();
 
         $pp_js_sdk_args = array(
@@ -429,6 +431,7 @@ class WC_Gateway_PayPal_Checkout extends WC_Payment_Gateway {
             'capture_order_ajax_action' => PayPal_Utils::auto_prefix('pp_capture_order'),
             'create_sub_order_ajax_action' => PayPal_Utils::auto_prefix('sub_pp_create_subscription'),
             'onapprove_sub_order_ajax_action' => PayPal_Utils::auto_prefix('sub_onapprove_process_subscription'),
+            'processing_message' => __('Processing payment…', 'woocommerce-paypal-pro-payment-gateway'),
             'webhook_missing_notice' => $this->webhook_missing_notice(),
             'btn_type'    => esc_js($paypal_button_type),
             'currency'    => get_woocommerce_currency(),

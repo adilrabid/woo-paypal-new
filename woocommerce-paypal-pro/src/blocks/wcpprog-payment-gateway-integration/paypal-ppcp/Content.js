@@ -2,12 +2,13 @@ import {decodeEntities} from '@wordpress/html-entities';
 import {select, dispatch} from '@wordpress/data';
 import {validationStore} from '@woocommerce/block-data';
 import {store as noticesStore} from '@wordpress/notices';
-import {useEffect, useRef} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {getPayPalPPCPSettings, ajaxPost} from '../Utils';
 
 /** Render the PayPal SDK button for the Checkout block. */
 export const PayPalButton = ({disabled = false, waitingForProcessing = false, isEditor = false}) => {
     const container = useRef(null);
+    const [approving, setApproving] = useState(false);
     const sdkActions = useRef(null);
     const busy = useRef(false);
     const processing = useRef(false);
@@ -55,6 +56,7 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
             if (disposed) {
                 return;
             }
+            setApproving(false);
             setBusy(false);
             console.error('PayPal Checkout error:', error);
             dispatch(noticesStore).createErrorNotice(error.message || 'An error occurred during payment. Please try again.', {
@@ -92,7 +94,12 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
 
                 return actions.resolve();
             },
-            onCancel: () => setBusy(false),
+            onCancel: () => {
+                if (!disposed) {
+                    setApproving(false);
+                    setBusy(false);
+                }
+            },
             onError: showError,
         };
 
@@ -124,6 +131,8 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
                 }
             };
             buttonConfig.onApprove = async (data, actions) => {
+                if (disposed) return;
+                setApproving(true);
                 setBusy(true);
                 try {
                     const transaction = await actions.subscription.get();
@@ -151,6 +160,8 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
                 }
             };
             buttonConfig.onApprove = async (data) => {
+                if (disposed) return;
+                setApproving(true);
                 setBusy(true);
                 try {
                     const result = await ajaxPost({
@@ -187,7 +198,12 @@ export const PayPalButton = ({disabled = false, waitingForProcessing = false, is
         return <div style={{color: '#cc0000', width: '100%'}}>{whMissingNotice}</div>
     }
 
-    return <div ref={container} style={{width: '100%'}}/>;
+    return <div className="wcpprog-payment-container" aria-busy={approving} style={{width: '100%'}}>
+        <div ref={container}/>
+        {approving && <div className="wcpprog-payment-processing" role="status" aria-label={getPayPalPPCPSettings('processing_message', 'Processing payment…')}>
+            <span className="wcpprog-payment-spinner" aria-hidden="true"/>
+        </div>}
+    </div>;
 };
 
 export default () => {

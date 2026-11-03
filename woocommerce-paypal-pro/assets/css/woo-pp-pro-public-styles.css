@@ -1,0 +1,38 @@
+.wcpprog-payment-container {
+    position: relative;
+    min-height: 60px;
+}
+
+.wcpprog-payment-processing {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.95);
+    color: #333;
+    cursor: wait;
+}
+
+.wcpprog-payment-spinner {
+    display: inline-block;
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    box-sizing: border-box;
+    border: 3px solid #ccc;
+    border-top-color: #0070ba;
+    border-radius: 50%;
+    animation: wcpprog-payment-spin 0.8s linear infinite;
+}
+
+@keyframes wcpprog-payment-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wcpprog-payment-spinner { animation: none; }
+}
