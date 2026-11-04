@@ -143,6 +143,9 @@ Please visit the following documentation pages to view screenshots:
 
 == Changelog ==
 
+= WIP =
+- Improved: A "Processing payment" spinner is shown over the PayPal button while the payment is being completed after PayPal approval, and the button can't be clicked again during that time. Applies to both the classic and block checkout pages.
+
 = 4.1.0 =
 - New: PayPal subscriptions with PayPal Checkout. Create subscription products with a recurring price, billing interval, optional free or paid trial, and an optional number of payments. [PayPal subscriptions documentation](https://wp-ecommerce.net/configure-and-manage-woocommerce-subscriptions-with-paypal-checkout)
 - New: Customers can view their subscriptions, received payments and cancel a subscription from My Account > Subscriptions.
