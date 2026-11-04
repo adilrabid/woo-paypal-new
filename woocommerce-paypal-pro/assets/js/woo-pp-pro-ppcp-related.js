@@ -17,6 +17,7 @@
 class Woo_PP_Pro_PPCP_Btn {
     btnContainer = null;
     btnConfig = {};
+    processingIndicator = null;
 
     constructor() {
         this.btnConfig = {
@@ -29,6 +30,9 @@ class Woo_PP_Pro_PPCP_Btn {
     onInit = () => {};
 
     onClick = (data, actions) => {
+        if (this.processingIndicator) {
+            return actions.reject();
+        }
         document.getElementById('wcpprog-paypal-error')?.remove();
         const form = document.querySelector('form.checkout');
         if (!form) {
@@ -61,7 +65,32 @@ class Woo_PP_Pro_PPCP_Btn {
         this.showError(err);
     };
 
+    setProcessing = (active) => {
+        if (!active) {
+            this.processingIndicator?.remove();
+            this.processingIndicator = null;
+            this.btnContainer?.removeAttribute('aria-busy');
+            return;
+        }
+        if (!this.btnContainer || this.processingIndicator) {
+            return;
+        }
+        this.btnContainer.classList.add('wcpprog-payment-container');
+        this.btnContainer.setAttribute('aria-busy', 'true');
+        const indicator = document.createElement('div');
+        indicator.className = 'wcpprog-payment-processing';
+        indicator.setAttribute('role', 'status');
+        const spinner = document.createElement('span');
+        spinner.className = 'wcpprog-payment-spinner';
+        spinner.setAttribute('aria-hidden', 'true');
+        indicator.setAttribute('aria-label', wc_paypal_checkout_params.processing_message || 'Processing payment…');
+        indicator.appendChild(spinner);
+        this.btnContainer.appendChild(indicator);
+        this.processingIndicator = indicator;
+    };
+
     showError = (error) => {
+        this.setProcessing(false);
         let notice = document.getElementById('wcpprog-paypal-error');
         if (!notice) {
             notice = document.createElement('ul');
@@ -209,6 +238,7 @@ class Woo_PP_Pro_PPCP_Buy_Now_Btn extends Woo_PP_Pro_PPCP_Btn {
     };
 
     onApprove = async (data) => {
+        this.setProcessing(true);
         try {
             const result = await this.ppcpAjax(wc_paypal_checkout_params.capture_order_ajax_action, {
                 paypal_order_id: data.orderID,
@@ -257,6 +287,7 @@ class Woo_PP_Pro_PPCP_Subscription_Btn extends Woo_PP_Pro_PPCP_Btn {
     };
 
     onApprove = async (data, actions) => {
+        this.setProcessing(true);
         try {
             const txn_data = await actions.subscription.get();
             const result = await this.ppcpAjax(wc_paypal_checkout_params.onapprove_sub_order_ajax_action, {
