@@ -143,23 +143,20 @@ class PayPal_Utility_IPN_Related {
 	 *               moved; hold the order) or 'failed' (no confirmed payment). Also 'capture' and 'reason'.
 	 */
 	public static function verify_capture_for_order( $order, $paypal_order_id, $txn_data ) {
-		$failed = static function ( $reason ) {
-			return array( 'result' => 'failed', 'capture' => array(), 'reason' => $reason );
-		};
 		if ( ! $order instanceof \WC_Order || ! is_array( $txn_data ) || ( $txn_data['id'] ?? '' ) !== $paypal_order_id ) {
-			return $failed( 'The PayPal response does not belong to this PayPal order.' );
+			return self::capture_verification_failed( 'The PayPal response does not belong to this PayPal order.' );
 		}
 		if ( 'COMPLETED' !== ( $txn_data['status'] ?? '' ) ) {
-			return $failed( 'PayPal order status is ' . sanitize_text_field( (string) ( $txn_data['status'] ?? 'missing' ) ) . ', not COMPLETED.' );
+			return self::capture_verification_failed( 'PayPal order status is ' . sanitize_text_field( (string) ( $txn_data['status'] ?? 'missing' ) ) . ', not COMPLETED.' );
 		}
 		$capture = $txn_data['purchase_units'][0]['payments']['captures'][0] ?? null;
 		if ( ! is_array( $capture ) || empty( $capture['id'] ) ) {
-			return $failed( 'PayPal returned no capture for this order.' );
+			return self::capture_verification_failed( 'PayPal returned no capture for this order.' );
 		}
 		$capture['id'] = sanitize_text_field( (string) $capture['id'] );
 		$status = (string) ( $capture['status'] ?? '' );
 		if ( 'COMPLETED' !== $status && 'PENDING' !== $status ) {
-			return $failed( 'PayPal capture status is ' . sanitize_text_field( $status ?: 'missing' ) . '.' );
+			return self::capture_verification_failed( 'PayPal capture status is ' . sanitize_text_field( $status ?: 'missing' ) . '.' );
 		}
 
 		$amount = $capture['amount']['value'] ?? '';
@@ -177,6 +174,11 @@ class PayPal_Utility_IPN_Related {
 			return array( 'result' => 'pending', 'capture' => $capture, 'reason' => 'PayPal is holding the payment as pending' . ( $reason ? ' (' . $reason . ')' : '' ) . '.' );
 		}
 		return array( 'result' => 'completed', 'capture' => $capture, 'reason' => '' );
+	}
+
+	/** Build a failed capture verification result. */
+	private static function capture_verification_failed( $reason ) {
+		return array( 'result' => 'failed', 'capture' => array(), 'reason' => $reason );
 	}
 
 	/**
