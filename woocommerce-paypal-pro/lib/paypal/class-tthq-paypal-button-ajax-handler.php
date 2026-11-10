@@ -218,6 +218,11 @@ class PayPal_Button_Ajax_Handler {
             || $order->get_meta( '_wcppprog_paypal_subscription_id', true ) ) {
             wp_send_json_error( array( 'message' => __( 'This order cannot use a one-time PayPal payment.', 'woocommerce-paypal-pro-payment-gateway' ) ), 403 );
         }
+        // The ownership check above is required: the nonce is public, so it must not be the only gate.
+        // An order that is already paid, or already has a PayPal capture recorded, is never captured or completed again.
+        if ( $order->is_paid() || $order->get_meta( '_paypal_transaction_id', true ) ) {
+            wp_send_json_success( array( 'redirect' => $order->get_checkout_order_received_url() ) );
+        }
         $needs_shipping = false;
         foreach ( $order->get_items() as $item ) {
             $product = $item->get_product();
@@ -239,43 +244,62 @@ class PayPal_Button_Ajax_Handler {
             wp_send_json_error( array( 'message' => $error->getMessage() ) );
         }
 
-		//Set the additional args for the API call.
-		$additional_args = array();
-		$additional_args['return_response_body'] = true;
-
 		// Capture the order using the PayPal API.
 		// https://developer.paypal.com/docs/api/orders/v2/#orders_capture
+		// The raw response is needed: the response body alone is a string even when PayPal rejects the capture.
 		$api_injector = new PayPal_Request_API_Injector();
-		$response = $api_injector->capture_paypal_order( $paypal_order_id, $additional_args );
+		$response = $api_injector->capture_paypal_order( $paypal_order_id, array( 'return_raw_response' => true ) );
+		$http_code = is_wp_error( $response ) ? 0 : (int) wp_remote_retrieve_response_code( $response );
+		$txn_data = is_wp_error( $response ) ? null : json_decode( wp_remote_retrieve_body( $response ), true );
+		$debug_id = is_wp_error( $response ) ? '' : sanitize_text_field( (string) wp_remote_retrieve_header( $response, 'paypal-debug-id' ) );
 
-		//We requested the response body to be returned, so we need to JSON decode it.
-		if($response !== false){
-			$txn_data = json_decode( $response, true );//JSON decode the response body that we received.
-		} else {
-			//Failed to capture the order.
-			wp_send_json_error(array('message' => 'Failed to capture PayPal payment'));
+		// A retried capture: PayPal refuses to capture twice, so read the order's actual state instead.
+		if ( 422 === $http_code && self::paypal_error_has_issue( $txn_data, 'ORDER_ALREADY_CAPTURED' ) ) {
+			$details = $api_injector->get_paypal_order_details( $paypal_order_id );
+			$txn_data = $details ? json_decode( wp_json_encode( $details ), true ) : null;
+			$http_code = $details ? 200 : 0;
+		}
+
+		if ( ! in_array( $http_code, array( 200, 201 ), true ) || ! is_array( $txn_data ) ) {
+			PayPal_Utils::log( sprintf(
+				'Capture failed for WooCommerce order #%d (PayPal order %s): HTTP %d%s%s. PayPal Debug ID: %s. The order was NOT marked as paid.',
+				$order->get_id(), $paypal_order_id, $http_code,
+				is_wp_error( $response ) ? ', ' . $response->get_error_message() : '',
+				is_array( $txn_data ) && ! empty( $txn_data['name'] ) ? ', ' . sanitize_text_field( $txn_data['name'] ) . ( ! empty( $txn_data['details'][0]['issue'] ) ? ' (' . sanitize_text_field( $txn_data['details'][0]['issue'] ) . ')' : '' ) : '',
+				$debug_id ?: 'none'
+			), false );
+			// Without a definite answer from PayPal (no response or a server error), the customer may have been charged.
+			$message = ( 0 === $http_code || $http_code >= 500 )
+				? __( 'We could not confirm your PayPal payment. Please check your PayPal account before trying again, or contact the store.', 'woocommerce-paypal-pro-payment-gateway' )
+				: __( 'PayPal could not complete this payment, so you have not been charged and the order has not been paid. Please try again or choose another payment method.', 'woocommerce-paypal-pro-payment-gateway' );
+			wp_send_json_error( array( 'message' => $message ) );
+		}
+
+		// Only a completed capture for this PayPal order and the full order amount pays the order.
+		$verification = PayPal_Utility_IPN_Related::verify_capture_for_order( $order, $paypal_order_id, $txn_data );
+		$capture = $verification['capture'];
+		PayPal_Utils::log( sprintf( 'Capture result for WooCommerce order #%d: %s. Capture ID: %s. %s', $order->get_id(), $verification['result'], $capture['id'] ?? 'none', $verification['reason'] ), 'completed' === $verification['result'] );
+
+		if ( 'failed' === $verification['result'] ) {
+			wp_send_json_error( array( 'message' => __( 'We could not confirm this PayPal payment, so the order has not been marked as paid. Please contact the store if you were charged.', 'woocommerce-paypal-pro-payment-gateway' ) ) );
+		}
+
+		if ( 'completed' !== $verification['result'] ) {
+			// Money may have moved (a pending capture or an unexpected amount): record it and hold the order for review.
+			$order->update_meta_data( '_paypal_transaction_id', $capture['id'] );
+			$order->set_transaction_id( $capture['id'] );
+			/* translators: 1: Why the payment needs review, 2: PayPal capture ID. */
+			$order->update_status( 'on-hold', sprintf( __( 'PayPal payment needs review before this order is fulfilled: %1$s PayPal capture ID: %2$s. Check the payment in your PayPal account.', 'woocommerce-paypal-pro-payment-gateway' ), $verification['reason'], $capture['id'] ) );
+			WC()->cart->empty_cart();
+			wp_send_json_success( array( 'redirect' => $order->get_checkout_order_received_url() ) );
 		}
 
 		$data = array(
 			'order_id' => $paypal_order_id,
 		);
-
 		$ipn_data = PayPal_Utility_IPN_Related::create_ipn_data_array_from_capture_order_txn_data( $data, $txn_data );
-		$paypal_capture_id = isset( $ipn_data['txn_id'] ) ? $ipn_data['txn_id'] : '';
-		PayPal_Utils::log( 'PayPal Capture ID (Transaction ID): ' . $paypal_capture_id, true );
-		PayPal_Utils::log_array( $ipn_data, true );//Debugging purpose.
 
-		/* Since this capture is done from server side, the validation is not required but we are doing it anyway. */
-		//Validate the buy now txn data before using it.
-		$validation_response = PayPal_Utility_IPN_Related::validate_buy_now_checkout_txn_data( $data, $txn_data );
-		if( empty($validation_response) ){
-			wp_send_json_error(array('message' => $validation_response));
-		}
-
-		/**
-		 * TODO: This is a plugin specific method.
-		 */
-		$wc_order = PayPal_Utility_IPN_Related::complete_post_payment_processing( $data, $txn_data, $ipn_data );
+		$wc_order = PayPal_Utility_IPN_Related::complete_post_payment_processing( $order, $txn_data, $capture );
 		if (is_wp_error($wc_order)) {
 			 wp_send_json_error(array('message' => $wc_order->get_error_message()));
 		}
@@ -290,5 +314,16 @@ class PayPal_Button_Ajax_Handler {
         wp_send_json_success(array(
             'redirect' => $wc_order->get_checkout_order_received_url()
         ));
+	}
+
+	/** Whether a PayPal error response lists the given issue code. */
+	private static function paypal_error_has_issue( $body, $issue ) {
+		$details = is_array( $body ) && isset( $body['details'] ) && is_array( $body['details'] ) ? $body['details'] : array();
+		foreach ( $details as $detail ) {
+			if ( is_array( $detail ) && $issue === ( $detail['issue'] ?? '' ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 }

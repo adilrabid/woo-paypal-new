@@ -103,13 +103,12 @@ class PayPal_Utility_IPN_Related {
 			if( $order_details !== false ){
 				//The order details were retrieved successfully.
 				$payer = isset($order_details->payer) ? $order_details->payer : array();
+				$customer_data_array = array();
 				if(is_object($payer)){
 					//Convert the object to an array.
 					$customer_data_array = json_decode(json_encode($payer), true);
 				}
-				//Debugging only.
-				PayPal_Utils::log_array( $customer_data_array, true );
-				
+
 				if( empty($ipn_data['payer_email']) && isset($customer_data_array['email_address']) ){
 					//Set the payer email from the subscriber data.
 					$ipn_data['payer_email'] = $customer_data_array['email_address'];
@@ -122,7 +121,8 @@ class PayPal_Utility_IPN_Related {
 					//Set the payer last name from the subscriber data.
 					$ipn_data['last_name'] = $customer_data_array['name']['surname'];
 				}
-				PayPal_Utils::log( 'Customer Email: ' . $ipn_data['payer_email'] . ', First Name: ' . $ipn_data['first_name'] . ', Last Name: ' . $ipn_data['last_name'], true );
+				// Don't log the payer's email or name.
+				PayPal_Utils::log( 'Payer details read from the PayPal order: email ' . ( empty( $ipn_data['payer_email'] ) ? 'missing' : 'present' ) . ', name ' . ( empty( $ipn_data['first_name'] ) ? 'missing' : 'present' ) . '.', true );
 
 			} else {
 				//Error getting order details.
@@ -137,32 +137,63 @@ class PayPal_Utility_IPN_Related {
 
 
 	/**
-	 * Validate that the transaction/order exists in PayPal and the price matches the price in the DB.
+	 * Check a PayPal capture response against the WooCommerce order before any payment is recorded.
+	 *
+	 * @return array 'result' is 'completed' (the order can be paid), 'pending' or 'review' (money may have
+	 *               moved; hold the order) or 'failed' (no confirmed payment). Also 'capture' and 'reason'.
 	 */
-	public static function validate_buy_now_checkout_txn_data( $data, $txn_data ) {
-		//TODO - We need to update this method to use the correct expected amount and currency from the WP eStore cart.
-		//For now, we will return true to avoid breaking the existing functionality.
-		return true;
+	public static function verify_capture_for_order( $order, $paypal_order_id, $txn_data ) {
+		$failed = static function ( $reason ) {
+			return array( 'result' => 'failed', 'capture' => array(), 'reason' => $reason );
+		};
+		if ( ! $order instanceof \WC_Order || ! is_array( $txn_data ) || ( $txn_data['id'] ?? '' ) !== $paypal_order_id ) {
+			return $failed( 'The PayPal response does not belong to this PayPal order.' );
+		}
+		if ( 'COMPLETED' !== ( $txn_data['status'] ?? '' ) ) {
+			return $failed( 'PayPal order status is ' . sanitize_text_field( (string) ( $txn_data['status'] ?? 'missing' ) ) . ', not COMPLETED.' );
+		}
+		$capture = $txn_data['purchase_units'][0]['payments']['captures'][0] ?? null;
+		if ( ! is_array( $capture ) || empty( $capture['id'] ) ) {
+			return $failed( 'PayPal returned no capture for this order.' );
+		}
+		$capture['id'] = sanitize_text_field( (string) $capture['id'] );
+		$status = (string) ( $capture['status'] ?? '' );
+		if ( 'COMPLETED' !== $status && 'PENDING' !== $status ) {
+			return $failed( 'PayPal capture status is ' . sanitize_text_field( $status ?: 'missing' ) . '.' );
+		}
+
+		$amount = $capture['amount']['value'] ?? '';
+		$currency = (string) ( $capture['amount']['currency_code'] ?? '' );
+		$decimals = wc_get_price_decimals();
+		if ( ! is_numeric( $amount ) || $currency !== $order->get_currency()
+			|| wc_format_decimal( $amount, $decimals ) !== wc_format_decimal( $order->get_total(), $decimals ) ) {
+			return array( 'result' => 'review', 'capture' => $capture, 'reason' => sprintf(
+				'PayPal captured %s %s, but the order total is %s %s.',
+				sanitize_text_field( (string) $amount ), sanitize_text_field( $currency ), $order->get_total(), $order->get_currency()
+			) );
+		}
+		if ( 'PENDING' === $status ) {
+			$reason = sanitize_text_field( (string) ( $capture['status_details']['reason'] ?? '' ) );
+			return array( 'result' => 'pending', 'capture' => $capture, 'reason' => 'PayPal is holding the payment as pending' . ( $reason ? ' (' . $reason . ')' : '' ) . '.' );
+		}
+		return array( 'result' => 'completed', 'capture' => $capture, 'reason' => '' );
 	}
 
 	/**
 	 * TODO: This is a plugin specific method.
 	 */
-	public static function complete_post_payment_processing( $data, $txn_data, $ipn_data){
-		$paypal_order_id = isset($data['order_id']) ? sanitize_text_field($data['order_id']) : '';
-
-		// Find the WooCommerce order by PayPal order ID
-		$orders = wc_get_orders(array(
-            'meta_key' => '_paypal_order_id',
-            'meta_value' => $paypal_order_id,
-            'limit' => 1,
-        ));
-
-        $wc_order = ! empty($orders) ? $orders[0] : false;
-
-        if ( empty($wc_order) ) {
-			return new \WP_Error('order_not_found', 'WooCommerce order not found');
-        }
+	/**
+	 * Mark a one-time PayPal Checkout order as paid.
+	 * Only call this with a capture that verify_capture_for_order() returned as 'completed'.
+	 */
+	public static function complete_post_payment_processing( $wc_order, $txn_data, $capture ){
+		if ( ! $wc_order instanceof \WC_Order || empty( $capture['id'] ) || 'COMPLETED' !== ( $capture['status'] ?? '' ) ) {
+			return new \WP_Error( 'capture_not_verified', __( 'We could not confirm this PayPal payment, so the order has not been marked as paid.', 'woocommerce-paypal-pro-payment-gateway' ) );
+		}
+		if ( $wc_order->is_paid() ) {
+			return $wc_order;
+		}
+		$paypal_order_id = sanitize_text_field( (string) ( $txn_data['id'] ?? '' ) );
 
         // Update the WooCommerce order with capture details
         if (isset($txn_data['payer'])) {
@@ -179,18 +210,15 @@ class PayPal_Utility_IPN_Related {
         }
 
         // Store PayPal transaction details
-        if (isset($txn_data['purchase_units'][0]['payments']['captures'][0])) {
-            $capture = $txn_data['purchase_units'][0]['payments']['captures'][0];
-            $wc_order->update_meta_data('_paypal_transaction_id', $capture['id']);
-            $wc_order->update_meta_data('_paypal_capture_response', $txn_data);
-        }
+        $wc_order->update_meta_data('_paypal_transaction_id', $capture['id']);
+        $wc_order->update_meta_data('_paypal_capture_response', $txn_data);
 
         $wc_order->save();
 
-		// Mark order as paid and add note
-        $wc_order->payment_complete($paypal_order_id);
-        /* translators: %s: PayPal order ID. */
-        $wc_order->add_order_note(sprintf(__('PayPal payment completed. PayPal Order ID: %s', 'woocommerce-paypal-pro-payment-gateway'), $paypal_order_id));
+		// Mark order as paid (the capture ID is the PayPal transaction ID) and add note
+        $wc_order->payment_complete( $capture['id'] );
+        /* translators: 1: PayPal order ID, 2: PayPal capture (transaction) ID. */
+        $wc_order->add_order_note( sprintf( __( 'PayPal payment completed. PayPal Order ID: %1$s. Capture ID: %2$s.', 'woocommerce-paypal-pro-payment-gateway' ), $paypal_order_id, $capture['id'] ) );
 
         // Empty cart
         WC()->cart->empty_cart();

@@ -2,14 +2,14 @@
 # This file is distributed under the GPL2 or Later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Payment Gateway for PayPal Pro, PayPal Checkout & Subscriptions for WooCommerce 4.1.0\n"
+"Project-Id-Version: Payment Gateway for PayPal Pro, PayPal Checkout & Subscriptions for WooCommerce 4.1.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woocommerce-paypal-pro-payment-gateway\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-29T10:49:14+00:00\n"
+"POT-Creation-Date: 2026-11-10T05:45:39+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woocommerce-paypal-pro-payment-gateway\n"
@@ -100,8 +100,26 @@ msgstr ""
 msgid "PayPal Checkout payment pending."
 msgstr ""
 
-#: lib/paypal/class-tthq-paypal-button-ajax-handler.php:226
+#: lib/paypal/class-tthq-paypal-button-ajax-handler.php:231
 msgid "Subscriptions cannot use a one-time PayPal payment."
+msgstr ""
+
+#: lib/paypal/class-tthq-paypal-button-ajax-handler.php:273
+msgid "We could not confirm your PayPal payment. Please check your PayPal account before trying again, or contact the store."
+msgstr ""
+
+#: lib/paypal/class-tthq-paypal-button-ajax-handler.php:274
+msgid "PayPal could not complete this payment, so you have not been charged and the order has not been paid. Please try again or choose another payment method."
+msgstr ""
+
+#: lib/paypal/class-tthq-paypal-button-ajax-handler.php:284
+msgid "We could not confirm this PayPal payment, so the order has not been marked as paid. Please contact the store if you were charged."
+msgstr ""
+
+#. translators: 1: Why the payment needs review, 2: PayPal capture ID.
+#: lib/paypal/class-tthq-paypal-button-ajax-handler.php:292
+#, php-format
+msgid "PayPal payment needs review before this order is fulfilled: %1$s PayPal capture ID: %2$s. Check the payment in your PayPal account."
 msgstr ""
 
 #: lib/paypal/class-tthq-paypal-button-sub-ajax-handler.php:84
@@ -271,14 +289,18 @@ msgstr ""
 msgid "Please select an available shipping method for your address."
 msgstr ""
 
-#. translators: %s: PayPal order ID.
-#: lib/paypal/class-tthq-paypal-utils-ipn-related.php:193
+#: lib/paypal/class-tthq-paypal-utils-ipn-related.php:191
+msgid "We could not confirm this PayPal payment, so the order has not been marked as paid."
+msgstr ""
+
+#. translators: 1: PayPal order ID, 2: PayPal capture (transaction) ID.
+#: lib/paypal/class-tthq-paypal-utils-ipn-related.php:221
 #, php-format
-msgid "PayPal payment completed. PayPal Order ID: %s"
+msgid "PayPal payment completed. PayPal Order ID: %1$s. Capture ID: %2$s."
 msgstr ""
 
 #. translators: %s: PayPal subscription ID.
-#: lib/paypal/class-tthq-paypal-utils-ipn-related.php:233
+#: lib/paypal/class-tthq-paypal-utils-ipn-related.php:261
 #, php-format
 msgid "PayPal subscription completed. PayPal Subscription ID: %s"
 msgstr ""
@@ -1212,6 +1234,11 @@ msgstr ""
 msgid "Year"
 msgstr ""
 
+#: woo-paypal-pro-gateway-blocks-support-ppcp.php:86
+#: woo-paypal-pro-gateway-paypal-checkout.php:434
+msgid "Processing payment…"
+msgstr ""
+
 #: woo-paypal-pro-gateway-blocks-support.php:60
 #: woo-paypal-pro-gateway-class.php:188
 #: woo-paypal-pro-gateway-class.php:191
@@ -1521,11 +1548,11 @@ msgstr ""
 msgid "No fields found for this subtab"
 msgstr ""
 
-#: woo-paypal-pro-gateway-paypal-checkout.php:449
+#: woo-paypal-pro-gateway-paypal-checkout.php:452
 msgid "Webhooks for PayPal Checkout are not configured. Go to WooCommerce > Settings > Payments > PayPal Checkout > Webhooks and create the webhook. Until then, customers see a message that subscriptions are unavailable and are asked to contact you."
 msgstr ""
 
-#: woo-paypal-pro-gateway-paypal-checkout.php:451
+#: woo-paypal-pro-gateway-paypal-checkout.php:454
 msgid "Subscriptions are temporarily unavailable. Please contact the store and let them know that the PayPal webhook for subscriptions is not configured."
 msgstr ""
 
